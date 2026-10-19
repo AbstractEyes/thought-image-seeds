@@ -45,6 +45,7 @@ SEED_MAX_RECORDS = 24                               # the deep row holds 14-30 r
 MAX_RELATIONS = 6
 HINT_MAX = 600
 HELD_PERCENT = 10                                   # of the seeds that use a sealed value, the share kept whole for the held split
+REJECTED: Counter = Counter()                       # make_seed's rejections by first problem (the build prints them per source)
 
 
 def clean(s) -> str:
@@ -127,10 +128,8 @@ class Spec:
 
 
 def check_spec(spec: dict) -> list:
-    """The seed's problems (empty when it passes): the trainer's validate_seed when it exists (0.1.64), else the contract's rules
-    (rule 2 of the row validator on the records, no interpretive system, the record count)."""
-    if hasattr(tp, "validate_seed"):
-        return list(tp.validate_seed(spec))
+    """The spec's problems (empty when it passes): rule 2 of the row validator on the records, no interpretive system, the record
+    count. The whole seed then passes the trainer's own gate, thought_pack.validate_seed (0.1.64), in make_seed."""
     p = []
     for system, attrs in spec.items():
         if system in INTERPRETIVE:
@@ -264,13 +263,23 @@ def make_seed(dataset: str, sid: str, domain: str, genre: str, spec: Spec | dict
     seed_id = f"{dataset}:{sid}"
     raw = spec.spec() if isinstance(spec, Spec) else spec
     s, held = route(seed_id, raw)
-    if tp.n_records(s) < min_records or check_spec(s):
+    if tp.n_records(s) < min_records:
+        REJECTED["too few records"] += 1
+        return None
+    probs = check_spec(s)
+    if probs:
+        REJECTED[f"spec: {probs[0]}"[:90]] += 1
         return None
     out = {"seed_id": seed_id, "domain": domain, "genre": clean(genre)[:24] or domain, "spec": s}
     if hint:
         out["hint"] = hint[:HINT_MAX]
     out["source"] = {"dataset": dataset, "id": str(sid), "license": license, "url": url}
     out["held"] = held
+    if hasattr(tp, "validate_seed"):                 # the trainer's gate (0.1.64): the contract, the license, the seal
+        probs = list(tp.validate_seed(out, HELD))
+        if probs:
+            REJECTED[f"gate: {probs[0]}"[:90]] += 1
+            return None
     return out
 
 

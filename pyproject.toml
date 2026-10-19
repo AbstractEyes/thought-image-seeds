@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thought-seeds"
+version = "0.0.1"
+description = "Licensed image descriptions, scene graphs, museum metadata and prompts turned into hidden picture specs (seeds) for a text-only art thought dataset."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26", "pandas>=2.1", "pyarrow>=15", "requests>=2.31", "huggingface_hub>=0.24"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["thought_seeds*"]
