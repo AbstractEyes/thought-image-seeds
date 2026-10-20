@@ -98,6 +98,13 @@ def test_words_read_off_a_sign_are_not_the_picture():
     assert ln.facts(t, False)[("person", "gender")] == "man"                          # unquoted: they end at the next clause
 
 
+def test_a_material_is_not_a_place():
+    t = ("In this image, in the middle there is a animal which is in brown color, in the left side there is kid standing and "
+         "holding a object, in the background there is a wall which is made of woods.")
+    assert ("scene", "setting") not in ln.facts(t, False)                             # a wall of wood, not a forest
+    assert ln.facts("A man is walking in the woods with a dog.", False)[("scene", "setting")] == "forest"
+
+
 def test_the_hint_agrees_with_the_chosen_facts():
     narr = ["A woman is standing on the beach and holding a surfboard.",
             "A woman holding a surfboard on the sand near the ocean.",

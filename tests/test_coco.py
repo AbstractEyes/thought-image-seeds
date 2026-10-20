@@ -138,6 +138,35 @@ def test_counts_follow_the_captions():
     assert t["name"] == "dog" and "count" not in t
 
 
+def test_one_person_among_slips_kin_words_and_pairs():
+    """The four seeds the row writer skipped at batches 030-035."""
+    cat_names = {c["id"]: c["name"] for c in CATS}
+    cat_super = {c["name"]: c["supercategory"] for c in CATS}
+    free_id = next(i for i in range(1000) if not core.held_pick(f"coco-image:{i}"))
+    # one box, four captions introduce one woman, one says 'the women': one woman, not a group
+    caps = ["A woman with a dog is eating a sandwich.", "A women getting ready to walk a dog.",
+            "There is a woman walking a dog in a park.", "The women walks her dog in the park.", "A woman walking a dog."]
+    ann = [(18, 300.0, 200.0, 200.0, 150.0, 0), (1, 10.0, 50.0, 40.0, 120.0, 0)]
+    p = coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]
+    assert p["count"] == "1" and p["gender"] == "woman"
+    # an animal's kin word is not a person: 'a baby cow' beside one man
+    assert coco._people_said(coco._Cap("A man driving a horse drawn carriage with a baby cow in the back.")) == {"1"}
+    assert coco._people_said(coco._Cap("A mother elephant and a man.")) == {"1"}
+    assert coco._people_said(coco._Cap("A mother and a baby on a bench.")) == {"2"}            # people stay people
+    # two person words in a row are one person
+    assert coco._people_said(coco._Cap("A baby girl is hugging a teddy bear.")) == {"1"}
+    assert coco._people_said(coco._Cap("a women surfer holding her surf board in the water")) == {"1"}
+    assert coco._people_said(coco._Cap("A man and a woman on a bench.")) == {"2"}
+    # 'a pair of scissors' is one pair
+    scissors = {87: "scissors"}
+    caps = ["A white table with a pair of scissors and orange thread.", "A thread of yarn rests between a pair of scissors.",
+            "A spool of yellow yarn and a pair of silver scissors.", "A pair of scissors with orange string on a spool."]
+    t = coco.build(free_id, 640, 480, [(87, 200.0, 200.0, 200.0, 150.0, 0)], caps, scissors, {"scissors": "indoor"})["spec"]["thing"]
+    assert t["name"] == "scissors" and t["count"] == "1"
+    # a material is not a place
+    assert "woods" not in coco._Cap("In the background there is a wall which is made of woods.").t
+
+
 def test_sign_text_and_figurines_are_not_the_picture():
     c = coco._Cap("a small shed that says fire hydrant and hose.")
     assert not c.cats.get("fire hydrant")                                   # the label's words, not a hydrant

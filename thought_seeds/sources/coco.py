@@ -259,6 +259,8 @@ SCRUB = [(re.compile(p), r) for p, r in (
     (r"\b(?:water|beer|milk|glass) pitchers?\b", "jug"), (r"\bwalking sticks?\b", "cane"), (r"\brunning (?:shoes|water)\b", "item"),
     (r"\bsitting (?:room|area)\b", "lounge"), (r"\bsleeping bags?\b", "bedroll"), (r"\bwatch(?:es|ing)? tower\b", "tower"),
     (r"\bstreet ?lights?\b", "street lamp"), (r"\bflat ?screen\b", "flatscreen"),
+    # a material, not a place: 'a wall which is made of woods'
+    (r"\b(made (?:up )?of|made from|built (?:of|from))\s+woods?\b", r"\1 timber"),
     # the words read off a sign or a label are not the picture: 'a shed that says fire hydrant and hose' (quoted text, or up to the
     # clause's end)
     (r"\b(says|saying|(?:that|which) reads|labeled|labelled|marked|written|printed)\s+"
@@ -275,6 +277,8 @@ SCRUB = [(re.compile(p), r) for p, r in (
 ANIMAL_CTX = re.compile(r"(?<![a-z0-9'])(" + "|".join(re.escape(w) for w in sorted(ANIMAL_WORDS, key=len, reverse=True)) + r")(?![a-z0-9'])")
 # words that name a person's kin, age or sex but name an animal's as often ('a baby elephant', 'the mother giraffe')
 ANIMAL_SHARED = {"baby", "babies", "infant", "mother", "mom", "father", "dad", "male", "female"}
+ANIMAL_NEXT = re.compile(r"\s+(?:[a-z]+\s+)?(?:" + "|".join(re.escape(w) for w in sorted(ANIMAL_WORDS, key=len, reverse=True))
+                         + r"|calf|calves|cub|cubs|foal|foals|lamb|lambs|puppy|puppies|kitten|kittens|chick|chicks)(?![a-z0-9'])")
 BASEBALL = re.compile(r"base ?ball|\bbat\b|\bpitch|\bswing|home plate|umpire|catcher|\bmound\b")
 NOT_BASEBALL = [(re.compile(r"\bbatters?\b"), "dough"), (re.compile(r"\bpitchers?\b"), "jug")]   # cake batter, a water pitcher
 
@@ -512,15 +516,24 @@ PLURAL_PEOPLE = frozenset(w for w in PERSON_WORDS if w.endswith("s") and w not i
 INTRODUCED = re.compile(r"\b(?:a|an|one)\s+(?:[a-z]+\s+){0,2}$")
 
 
+def _person_spans(c) -> list:
+    """The person words of a caption as [(start, end)], without the kin words that tell of an animal ('a baby cow', 'the mother
+    giraffe')."""
+    return [(s, e) for s, e, _ in PERSON_M.iter(c.t) if not (c.t[s:e] in ANIMAL_SHARED and ANIMAL_NEXT.match(c.t, e))]
+
+
 def _people_said(c) -> set:
     """How many people one caption introduces: {'plural'} when it uses a group word ('people', 'a couple', 'skiers'), else the number
     of people it introduces with 'a' / 'an' / 'one' ('a man and a woman' -> 2; up to 3), else nothing."""
-    ms = [(s, c.t[s:e]) for s, e, _ in PERSON_M.iter(c.t)]
+    ms = [(s, c.t[s:e]) for s, e in _person_spans(c)]
     # a plural word right after 'a' / 'an' is a slip for the singular ('a women who is playing tennis')
     if any(w in PLURAL_PEOPLE and not (w not in ("couple", "family", "crowd", "team") and re.search(r"\ban?\s+$", c.t[max(0, s - 4):s]))
            for s, w in ms):
         return {"plural"}
-    n = sum(1 for s, w in ms if w not in ("he", "she", "someone", "somebody") and INTRODUCED.search(c.t[max(0, s - 24):s]))
+    # two person words in a row are one person ('a baby girl', 'a women surfer'): only the first is counted
+    ends = {e for _, e in _person_spans(c)}
+    n = sum(1 for s, w in ms if w not in ("he", "she", "someone", "somebody") and INTRODUCED.search(c.t[max(0, s - 24):s])
+            and not any(c.t[e:s].strip() == "" for e in ends if e <= s))
     return {str(n)} if 1 <= n <= 3 else set()
 
 
@@ -553,13 +566,17 @@ def _said_one(caps: list, cat: str) -> bool:
     return ones >= 2
 
 
+PAIR_NOUNS = {"scissors", "skis"}          # one object named as a pair: 'a pair of scissors' is one pair, not two
+
+
 def _thing_votes(caps: list, cat: str) -> list:
     """Per caption, the counts it states for the category: a number or a quantity word within 12 characters before its word
     ('two brown bears', 'dozens of green bananas'), or 2 when it says 'another' or 'each other' ('one bear grooming another')."""
     votes = []
     for c in caps:
         sp = [(s, e) for s, e, _ in c.cats.get(cat, [])]
-        v = {num for _, ne, num in NUMBER_M.iter(c.t) + QUANTITY_M.iter(c.t) if any(0 <= ts - ne <= 12 for ts, _ in sp)}
+        v = {num for ns, ne, num in NUMBER_M.iter(c.t) + QUANTITY_M.iter(c.t) if any(0 <= ts - ne <= 12 for ts, _ in sp)
+             and not (cat in PAIR_NOUNS and c.t[ns:ne] == "a pair of")}
         if not v and sp and ANOTHER_ONE.search(c.t):
             v = {"2"}
         votes.append(v)
@@ -714,18 +731,21 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
     n_people = len(P["boxes"]) if P else 0
     # boxes alone are not enough: people in the far background, on posters or on screens are boxed too; the captions must speak of
     # people (two of them at least) before the picture has a person subject
-    spoken = sum(1 for c in caps if PERSON_M.iter(c.t))
+    spoken = sum(1 for c in caps if _person_spans(c))
     has_people = bool(P) and (n_people > 0 or P["crowd"]) and spoken >= 2
     gender = None
     if has_people:
-        stated = _stated_count(caps, lambda c: [(s, e) for s, e, _ in PERSON_M.iter(c.t)])
+        stated = _stated_count(caps, _person_spans)
         votes = [_people_said(c) for c in caps]
         said = _vote(votes)
         more = {v for s in votes for v in s if v == "plural" or (said and said != "plural" and int(v) > int(said))}
         said = said if said and said != "plural" and not more else None     # any caption with more people: the boxes decide
         count = stated or said or _box_count(n_people, P["crowd"])
-        if count == "1" and any(v == "plural" or int(v) > 1 for s in votes for v in s):
-            # one box, but the captions see more people ('a couple', 'a man and a woman'): the captions' most named number
+        ones = sum(1 for s in votes if s == {"1"})
+        bigs = sum(1 for s in votes if any(v == "plural" or int(v) > 1 for v in s))
+        if count == "1" and bigs and not (ones >= 2 and ones > bigs):
+            # one box, but the captions see more people ('a couple', 'a man and a woman'): the captions' most named number; one
+            # box and most captions introducing one person ('the women eats a donut' beside four 'a woman'): one
             nums = Counter(v for s in votes for v in s if v != "plural" and int(v) > 1)
             top = nums.most_common(2)
             count = top[0][0] if top and (len(top) == 1 or top[0][1] > top[1][1]) else "several"

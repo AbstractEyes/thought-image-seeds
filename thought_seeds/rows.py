@@ -55,6 +55,12 @@ PERSON_DETAILS = (("look", "hair"), ("look", "expression"), ("look", "eyes"), ("
                   ("wear", "accessory"))
 TIGHT_DETAILS = {"extreme close": 3, "macro": 1, "detail": 1}      # an extreme close of a face shows hair, expression and eyes
 DEEP_MIN_DRAWN = 10       # a deep spec keeps 10 drawn records after tighten(); the writer's mood, intent and story reach the deep count
+SILHOUETTE_HIDES = (("wear", "colour"), ("thing", "colour"), ("look", "expression"), ("look", "eyes"), ("look", "makeup"),
+                    ("look", "skin"))       # a figure dark against the light shows its outline, not its colours or its face
+VIEWER_RELS = {"left of", "right of", "behind", "in front of", "beside", "facing", "looking at"}    # 'the camera' here reads as the viewer
+NIGHT_SETTINGS = {"night market"}
+NOT_NIGHT = DAY_HOURS | {"dawn", "golden hour"}
+ALOFT_SMALL = {"bird", "kite", "flag", "lantern", "clock"}        # small things that hang or fly above a large one
 
 
 def nested(specs: dict) -> bool:
@@ -64,20 +70,31 @@ def nested(specs: dict) -> bool:
 
 
 def tighten(specs: dict) -> dict:
-    """A drawn series at a tight framing, made one picture: the relations go (a macro frame shows one small part, not two things in
-    a relation) and the person keeps only the details the framing can show (the first in PERSON_DETAILS order). The framing words
-    stay in the drawn rows instead of being redrawn away. The cut is decided on the fullest rank and applied to every rank, so the
-    ranks stay nested (each a subset of the next). -> the series' specs, changed only when a rank's framing is tight."""
+    """A drawn series at a tight framing or under a silhouette, made one picture. At a tight framing the relations go (a macro frame
+    shows one small part, not two things in a relation), the person keeps only the details the framing can show (the first in
+    PERSON_DETAILS order) and a macro frame loses the setting (it shows none of it). Under a silhouette the colours and the face go
+    (SILHOUETTE_HIDES), and at a tight framing the clothing too. The framing and light words stay in the drawn rows instead of being
+    redrawn away. The cut is decided on the fullest rank and applied to every rank, so the ranks stay nested (each a subset of the
+    next). -> the series' specs, changed only when a rank's framing is tight or its light a silhouette."""
     tight = [s.get("shot", {}).get("framing") for s in specs.values() if s.get("shot", {}).get("framing") in TIGHT_FRAMING]
-    if not tight:
+    sil = any(s.get("shot", {}).get("light") == "silhouette" for s in specs.values())
+    if not tight and not sil:
         return specs
-    fr = tight[0]
+    fr = tight[0] if tight else None
     full = max(specs.values(), key=tp.n_records)
-    cut = set([k for k in PERSON_DETAILS if full.get(k[0], {}).get(k[1])][TIGHT_DETAILS[fr]:])
-    big = tp.SIZE.get(full.get("thing", {}).get("name"), 2) > 1          # a whole dog does not fit a macro frame: the thing goes
+    cut = set(SILHOUETTE_HIDES) if sil else set()
+    if fr:
+        shown = [k for k in PERSON_DETAILS if full.get(k[0], {}).get(k[1]) and k not in cut]
+        cut |= set(shown[TIGHT_DETAILS[fr]:])
+        if fr == "macro":
+            cut.add(("scene", "setting"))
+        if sil:
+            cut.add(("wear", "clothing"))
+    big = bool(fr) and tp.SIZE.get(full.get("thing", {}).get("name"), 2) > 1   # a whole dog does not fit a macro frame: the thing goes
     out = {}
     for depth, spec in specs.items():
-        s = {k: dict(v) if isinstance(v, dict) else v for k, v in spec.items() if k != "relation" and not (big and k == "thing")}
+        s = {k: dict(v) if isinstance(v, dict) else v for k, v in spec.items()
+             if not (fr and k == "relation") and not (big and k == "thing")}
         for sys_, attr in cut:
             if attr in s.get(sys_, {}):
                 del s[sys_][attr]
@@ -164,6 +181,31 @@ def incoherent(spec: dict) -> list:
         why.append(f"{form['contrast']} contrast under a silhouette")
     if spec.get("body", {}).get("pose") == "floating" and st and st not in WATER:
         why.append(f"floating at a {st}")
+    if light == "silhouette":
+        hidden = [f"{s} {a}" for s, a in SILHOUETTE_HIDES if spec.get(s, {}).get(a)]
+        if fr in TIGHT_FRAMING and spec.get("wear", {}).get("clothing"):
+            hidden.append("wear clothing")                                     # a vest at an extreme close, all outline
+        if hidden:
+            why.append(f"{', '.join(hidden)} under a silhouette")
+    if fr == "macro" and st:
+        why.append(f"a {st} in a macro frame")                                 # a macro frame shows none of the place
+    if st in NIGHT_SETTINGS and tm in NOT_NIGHT:
+        why.append(f"a {st} at {tm}")
+    for r in rels:
+        a_, b_, rel = r.get("a"), r.get("b"), r.get("rel")
+        if "camera" in (a_, b_) and rel in VIEWER_RELS:
+            why.append(f"{a_} {rel} {b_}: the camera reads as the viewer")
+        sa, sb = tp.SIZE.get(a_), tp.SIZE.get(b_)
+        if sa is None or sb is None:
+            continue                                                           # a person or an unsized thing: the tools' own checks
+        if rel == "under" and sa >= sb and sa >= 2 and a_ not in tp.ANIMATE:
+            why.append(f"a {a_} under a {b_}")                                 # a window under a table, a table under a chair
+        if rel == "in front of" and sa - sb >= 2:
+            why.append(f"a {a_} in front of a {b_}, hiding it")                # a tree in front of a book
+        if rel == "behind" and sb - sa >= 2:
+            why.append(f"a {a_} behind a {b_}, hidden")
+        if rel == "above" and sa == 1 and sb == 3 and a_ not in ALOFT_SMALL:
+            why.append(f"a {a_} hovering above a {b_}")                        # an umbrella above a whole tree
     if spec.get("form", {}).get("medium") in NOT_DRAWN_MEDIA:
         why.append(f"medium {spec['form']['medium']}")
     return why

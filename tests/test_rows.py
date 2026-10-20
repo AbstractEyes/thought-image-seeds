@@ -97,6 +97,27 @@ def test_drawn_specs_pass_the_coherence_filter(tmp_path):
     assert nested(series)
     t = tighten(series)
     assert nested(t) and "wear" not in t["simple"] and "wear" not in t["medium"] and t["deep"]["look"] == {"hair": "afro"}
+    # the classes the row writer reported at batches 030-035
+    assert incoherent({"shot": {"light": "silhouette"}, "wear": {"colour": "red"}})
+    assert not incoherent({"shot": {"light": "silhouette"}, "wear": {"clothing": "vest"}})
+    assert incoherent({"shot": {"light": "silhouette", "framing": "extreme close"}, "wear": {"clothing": "vest"}})
+    assert incoherent({"shot": {"framing": "macro"}, "scene": {"setting": "cliff"}})
+    assert incoherent({"scene": {"setting": "night market", "time": "golden hour"}})
+    assert not incoherent({"scene": {"setting": "night market", "time": "night"}})
+    assert incoherent({"relation": [{"a": "kite", "rel": "behind", "b": "camera"}]})
+    assert not incoherent({"relation": [{"a": "woman", "rel": "holding", "b": "camera"}]})
+    assert incoherent({"relation": [{"a": "window", "rel": "under", "b": "table"}]})
+    assert not incoherent({"relation": [{"a": "dog", "rel": "under", "b": "table"}]})
+    assert not incoherent({"relation": [{"a": "cup", "rel": "under", "b": "table"}]})
+    assert incoherent({"relation": [{"a": "tree", "rel": "in front of", "b": "book"}]})
+    assert incoherent({"relation": [{"a": "umbrella", "rel": "above", "b": "tree"}]})
+    assert not incoherent({"relation": [{"a": "kite", "rel": "above", "b": "tree"}]})
+    series = {"simple": {"wear": {"colour": "red"}, "scene": {"setting": "cliff"}},
+              "medium": {"wear": {"colour": "red"}, "scene": {"setting": "cliff"}, "look": {"hair": "afro"}},
+              "deep": {"shot": {"light": "silhouette", "framing": "macro"}, "wear": {"colour": "red"}, "scene": {"setting": "cliff"},
+                       "look": {"hair": "afro"}, "thing": {"name": "cup"}}}
+    t = tighten(series)
+    assert nested(t) and all("wear" not in s and "scene" not in s for s in t.values()) and not incoherent(t["deep"])
     path = draw(11, 40, 40, str(tmp_path), rng_seed=5)
     for line in open(path):
         it = json.loads(line)
