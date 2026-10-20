@@ -123,3 +123,10 @@ def test_period_european_eras_only_for_the_european_tradition():
     western = cleveland.build(dict(r, culture="France, 17th century", department="Decorative Art and Design"), set())
     japanese = cleveland.build(dict(r, culture="Japan, Edo period", department="Japanese Art"), set())
     assert western["spec"]["form"] == {"period": "baroque"} and "form" not in japanese["spec"]
+
+
+def test_sentences_about_the_makers_life_are_left_out():
+    t = ("He considered this composition to be among his very best works. A donkey stands at the far right. His family may have "
+         "commissioned this artwork to remember him by. For this composition, he seated himself in a plainly appointed studio.")
+    assert cleveland.without_biography(t) == ("A donkey stands at the far right. For this composition, he seated himself in a "
+                                              "plainly appointed studio.")

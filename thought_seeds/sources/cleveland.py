@@ -74,6 +74,18 @@ def clean_html(t: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", " ", t or ""))
 
 
+# a sentence about the maker's life rather than the object ('He considered this composition among his very best works', 'His
+# family may have commissioned it', 'she continued to show her graphic work')
+BIOGRAPHY = re.compile(r"\b(?:he|she)\s+(?:considered|lived|moved|studied|trained|exhibited|continued|worked|travell?ed|was born|"
+                       r"died|spent|returned|settled|became|retired|married|taught|joined|left)\b|\b(?:his|her)\s+(?:career|family|"
+                       r"life|late works|early works|work found|reputation|death|birth|patrons?|students?|pupils?|apprentices?)\b")
+
+
+def without_biography(text: str) -> str:
+    """The text without the sentences about the maker's life."""
+    return " ".join(s for s in re.split(r"(?<=[.!?])\s+", text or "") if s and not BIOGRAPHY.search(s.lower()))
+
+
 def build(r: dict, vocab: set, names: core.NameList | None = None):
     """One CC0 row to a seed, or None. `vocab`: the plain words of the description texts (core.corpus_vocab); `names`: the name
     words of every row's creators beside the ordinary words of the description texts (core.plain_words; seeds builds both)."""
@@ -144,7 +156,7 @@ def build(r: dict, vocab: set, names: core.NameList | None = None):
     allow = (set(cul.split()) if cul else set()) | core.DATE_MARKS
     head = core.make_hint([core.drop_named(p, allow=allow) for p in parts])
     # the texts without image talk ('This image depicts', 'In this image'), then without a sentence that may hold a name
-    desc = core.drop_named_strict(core.without_image_talk(desc_raw), vocab, names=names, own=own)
+    desc = without_biography(core.drop_named_strict(core.without_image_talk(desc_raw), vocab, names=names, own=own))
     if desc:
         desc = met.fit(desc, core.HINT_MAX - len(head) - 1)
     hint = core.make_hint([desc, head] if desc else [head])

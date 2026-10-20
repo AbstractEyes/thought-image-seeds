@@ -632,6 +632,16 @@ def placed(tl: str, np: dict, first: bool) -> str | None:
     return vals.pop() if len(vals) == 1 else None
 
 
+def said_again(head: str, text: str) -> bool:
+    """The description introduces the subject's noun more than once ('a black and white cat and a dark gray cat', 'another cat',
+    'two cats', 'both cats'): its count is then not one, and the number is left unknown."""
+    h, t = re.escape(head), text.lower()
+    intros = re.findall(rf"\b(?:a|an)\s+(?:[a-z-]+\s+){{0,3}}{h}\b(?!['’]s)", t)
+    return (len(intros) >= 2 or re.search(rf"\banother\s+(?:[a-z-]+\s+){{0,2}}{h}\b", t) is not None
+            or re.search(rf"\b(?:two|three|four|five|six|both|several|many|multiple)\s+(?:[a-z-]+\s+){{0,2}}{h}(?:s|es)?\b", t)
+            is not None)
+
+
 def spec_of(description: str, vocab: set | None = None) -> tuple:
     """-> (core.Spec, genre, hint) for one DOCCI description, or (None, reason, '') when it is skipped. `vocab`: the plain words
     of the descriptions (core.corpus_vocab of the whole file, as seeds passes it; by default those of this description)."""
@@ -663,7 +673,7 @@ def spec_of(description: str, vocab: set | None = None) -> tuple:
     thing = None
     if np is not None and not person_subject and s.set("thing", "name", np["name"]):       # (a name over budget: no thing)
         thing = np
-        if count:
+        if count and not (count == "1" and said_again(np["head"], " ".join(sents))):
             s.set("thing", "count", count)
         if len(np["colours"]) == 1 and np["colours"][0] not in maps.HAIR_COLOUR_ONLY:
             s.set("thing", "colour", np["colours"][0])

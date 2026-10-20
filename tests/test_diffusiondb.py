@@ -51,12 +51,13 @@ def test_diffusiondb_seeds(tmp_path, monkeypatch):
     assert not any(x["spec"].get("person", {}).get("gender") == "woman" for x in out)   # the NSFW-flagged and explicit ones left
     for x in out:
         assert core.check_spec(x["spec"]) == []
+        assert sum(len(v) for v in x["spec"].values()) >= 2               # no hint: one record alone is too little
 
 
 def test_hintless_seeds_are_deduplicated_by_their_prompt(tmp_path, monkeypatch):
     monkeypatch.setattr(ddb, "NAME_MIN", 1)
     raw = str(tmp_path)
-    _write(raw, [("a long cavalcade of horses, endless, " + "very " * 150 + "detailed", 0.01, 0.0),
+    _write(raw, [("a long cavalcade of horses at dusk, endless, " + "very " * 150 + "detailed", 0.01, 0.0),
                  ("a quiet harbour with two boats at dawn, soft light", 0.01, 0.0),
                  ("a quiet harbour with two boats at dawn, soft light, greg rutkowski", 0.01, 0.0)])
     out = list(ddb.seeds(raw))

@@ -293,7 +293,8 @@ def build(sid: str, prompt: str, names: set, totals: Counter, safe: set, pairs: 
     spec = vocab_only(textspec.finish(DATASET, sid, s), _KNOWN["things"], _KNOWN["ends"])
     if not spec:
         return None
-    return core.make_seed(DATASET, sid, textspec.domain_of(text), genre_of(text, info), spec, "", LICENSE, URL)
+    # no hint: one record alone ('a tornado') says too little to write a row from
+    return core.make_seed(DATASET, sid, textspec.domain_of(text), genre_of(text, info), spec, "", LICENSE, URL, min_records=2)
 
 
 def seeds(raw_dir: str, limit: int | None = None) -> Iterator[dict]:

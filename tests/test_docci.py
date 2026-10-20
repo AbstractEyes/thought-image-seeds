@@ -147,3 +147,13 @@ def test_module_contract():
     for name in ("DATASET", "LICENSE", "URL", "ATTRIBUTION", "CITATION", "TAKEN"):
         assert getattr(docci, name)
     assert docci.LICENSE == "CC BY 4.0" and "@inproceedings{OnoeDocci2024" in docci.CITATION
+
+
+def test_a_noun_introduced_twice_has_no_count():
+    s, _genre, _hint = docci.spec_of("An indoor view of a black and white cat and a dark gray cat on light wooden stairs. The black "
+                                     "and white cat is sitting facing the front.")
+    assert s.d["thing"]["name"] == "cat" and "count" not in s.d["thing"]
+    s, _genre, _hint = docci.spec_of("An indoor view of a black and white cat on light wooden stairs. The cat is sitting.")
+    assert s.d["thing"]["count"] == "1"
+    assert docci.said_again("cat", "a cat sits beside another cat") and docci.said_again("cat", "two gray cats on a step")
+    assert not docci.said_again("cat", "a cat's tail and the cat's paw")
