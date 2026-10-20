@@ -5,7 +5,8 @@ guard where a word has a second sense ('studio lighting' is a light, not a setti
 glasses' are not glasses; 'a jungle gym' is no forest), never when negated ('no rain') and never for a picture shown inside the
 scene ('a wall with a framed oil painting', 'a television that displays an image of a city at night', 'two paintings on the wall.
 The one on the left a detailed oil painting of ...'); the thing is the first
-concrete noun of a fixed vocabulary (animals, vehicles, objects, buildings, food, plants), with its count, bound colour and position
+concrete noun of a fixed vocabulary (animals, vehicles, objects, buildings, food, plants; never what a thing is shaped like, 'a
+cloud in the shape of a teacup', nor 'well' as an adverb, 'well lit'), with its count, bound colour and position
 when the text gives them (a number counts the noun it stands before: never an age, a measure or a title's number, '25 year old
 man', 'six meters tall', 'metin 2'); persons come from the gender / age / role / kin words, and a person word that names no person
 of the picture is passed over (a modifier, 'baby elephant'; a chess piece; an animal's title or guise, 'raccoon king', 'frog
@@ -124,6 +125,10 @@ NOT_PERSON_PREFIX = re.compile(
     r"sculpted|carved|built|crafted|rendered|art|artwork|drawing|painting|photo|photograph|photography|illustrations?|"
     r"render|rendering|images?|film|movie|comics?|designs?|poster|cover|sketch|work|works|picture|portrait) by)"
     r"(?: (?!(?:and|or|nor|but|of|with|in|on|at|for|from|to|while|is|are|was|were|who|that|which)\b)[a-z0-9'\-]+){0,3}$")
+# a noun after one of these is what a thing is shaped like, not a thing of the picture ('a cloud in the shape of a teacup')
+SHAPE_OF = re.compile(r"(?:^|\s)(?:shape of|shaped like|looks? like|looking like|resembl(?:e|es|ing))"
+                      r"(?: (?!(?:and|or|nor|but|of|with|in|on|at|for|from|to|while|is|are|was|were|who|that|which)\b)"
+                      r"[a-z0-9'\-]+){0,3}$")
 GUARD_NOT_PERSON = {"closed", "open", "half", "full", "shin", "mud", "hand", "chin", "mouth", "knee", "elbow", "splash", "fender",
                     "sword", "nose", "neck", "chest", "arm", "leg", "finger", "rash", "cheek", "face", "cross", "point", "life",
                     "color", "colour", "crash", "brush", "bumper", "hilt", "blade", "stair", "bed", "wheel", "chain", "toe",
@@ -374,6 +379,10 @@ def _mentions(toks: list) -> list:
                                                     (i >= 2 and toks[i - 1] == "the" and toks[i - 2] in VIEWPOINT_WORDS)):
                     hit = (i, i + n, None, False, "modifier", None)       # 'facing the camera': the viewer, no thing
                     break
+                if (form == "well" and re.fullmatch(r"[a-z]+ed|known|lit|done|made|built|kept|worn|drawn|off", nxt)) or \
+                        SHAPE_OF.search(" ".join(toks[max(0, i - 6):i])):
+                    hit = (i, i + n, None, False, "modifier", None)       # 'well designed'; 'a cloud in the shape of a teacup'
+                    break                                                 # has no teacup
                 nxt2 = toks[i + n + 1] if i + n + 1 < len(toks) else ""
                 if kind == "animal" and (nxt in ROYAL_TITLES or (nxt in PERSON_WORDS and nxt not in ANIMAL_AGENTS and
                                                                  nxt not in HYBRID_HEADS)) \

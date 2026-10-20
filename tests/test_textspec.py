@@ -65,6 +65,14 @@ def test_person_words_that_name_no_person():
     assert _spec("a horse rider in a field")["person"]["role"] == "rider"           # a role keeps its person
 
 
+def test_a_thing_is_no_shape_and_no_adverb():
+    assert _spec("a cloud in the shape of a teacup")["thing"]["name"] == "cloud"           # no teacup in the picture
+    assert "thing" not in _spec("a nebula that looks like a donut")
+    assert _spec("a deep well in the forest")["thing"]["name"] == "well"
+    for text in ("beautiful well designed symmetric headphones", "a well lit room", "a portrait of a well dressed woman"):
+        assert _spec(text).get("thing", {}).get("name") != "well", text
+
+
 def test_a_guise_is_no_person():
     for text in ("a corgi as a knight", "a cat dressed as a pirate", "a gorilla astronaut", "a frog knight", "a cat chef cooking",
                  "a chimpanzee, dressed as wonder woman", "roses that resemble a beautiful teen girl",
