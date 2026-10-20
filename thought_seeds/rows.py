@@ -34,6 +34,46 @@ PERMISSIVE_ROW = "Apache-2.0"
 ATTRIBUTION_LICENSES = ("CC BY", "ODC-By")      # a row from such a seed keeps the seed's license (attribution travels with it)
 
 
+ADULT_AGES = {"20s", "30s", "40s", "50s", "60s", "elderly", "young adult"}
+YOUNG_AGES = {"child", "baby", "teen"}
+INDOOR = {"kitchen", "studio", "subway", "cathedral", "cafe", "library", "ballroom", "classroom", "greenhouse", "workshop",
+          "laboratory", "temple", "hospital ward", "attic", "cave"}
+TIGHT_FRAMING = {"macro", "extreme close", "detail"}
+NOT_DRAWN_MEDIA = {"pixel art"}             # the validator's banned substring "pixel" rejects this medium's rows (reported upstream)
+
+
+def incoherent(spec: dict) -> list:
+    """The reasons a drawn spec cannot be one picture (the sampler draws each value on its own): an age that contradicts the gender
+    word, a two shot of one person, a tight framing of a whole-body pose, weather inside, a medium the validator cannot pass."""
+    why = []
+    p = spec.get("person", {})
+    g, a = p.get("gender"), p.get("age")
+    if g in ("boy", "girl") and a in ADULT_AGES:
+        why.append(f"{g} aged {a}")
+    if g in ("man", "woman") and a in YOUNG_AGES:
+        why.append(f"{g} aged {a}")
+    fr = spec.get("shot", {}).get("framing")
+    if fr == "two shot" and p.get("count") == "1":
+        why.append("a two shot of one person")
+    if fr in TIGHT_FRAMING and spec.get("body", {}).get("pose"):
+        why.append(f"{fr} framing of a {spec['body']['pose']} pose")
+    sc = spec.get("scene", {})
+    if sc.get("setting") in INDOOR and sc.get("weather") not in (None, "clear"):
+        why.append(f"{sc['weather']} inside a {sc['setting']}")
+    if spec.get("form", {}).get("medium") in NOT_DRAWN_MEDIA:
+        why.append(f"medium {spec['form']['medium']}")
+    return why
+
+
+def _tidy(spec: dict) -> dict:
+    """A relation end that is the bare word 'nonbinary' becomes 'person' (the gender word names the subject; 'nonbinary' is not a noun)."""
+    for r in spec.get("relation", []) or []:
+        for end in ("a", "b"):
+            if r.get(end) == "nonbinary":
+                r[end] = "person"
+    return spec
+
+
 def domain_for(spec: dict, rng, mix=DRAWN_DOMAINS) -> str:
     """The domain a spec's medium implies, else one drawn by the mix."""
     m = spec.get("form", {}).get("medium")
@@ -75,7 +115,11 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
                         license=row_license(seed), note="the deep spec is the seed: keep every record; cut the medium and simple "
                                                          "specs from it as subsets")
         else:
-            specs = tp.sample_series(rng, lists)
+            for _ in range(200):
+                specs = tp.sample_series(rng, lists)
+                if not incoherent(specs["deep"]):
+                    break
+            specs = {d: _tidy(s) for d, s in specs.items()}
             item = dict(kind="series", series=sid, ids=[f"art-{batch:03d}{k + i:03d}" for i in range(3)],
                         domain=domain_for(specs["deep"], rng), genre=None, specs=specs, seed_id=None, license=PERMISSIVE_ROW)
         k += 3
@@ -91,7 +135,11 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
                         ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=seed["domain"], genre=seed["genre"], spec=seed["spec"],
                         seed_id=seed["seed_id"], hint=seed.get("hint", ""), license=row_license(seed))
         else:
-            spec = tp.sample_spec(rng, depth, lists)
+            for _ in range(200):
+                spec = tp.sample_spec(rng, depth, lists)
+                if not incoherent(spec):
+                    break
+            spec = _tidy(spec)
             item = dict(kind="single", series=f"s-{batch:03d}{n_series + j:02d}" if n_series + j < 100 else None,
                         ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=domain_for(spec, rng), genre=None, spec=spec,
                         seed_id=None, license=PERMISSIVE_ROW)

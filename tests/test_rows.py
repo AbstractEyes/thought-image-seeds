@@ -34,3 +34,15 @@ def test_drawn_specs_are_photographs_paintings_or_illustrations(tmp_path):
     path = draw(9, 30, 30, str(tmp_path), rng_seed=3)
     doms = {json.loads(line)["domain"] for line in open(path)}
     assert doms <= {"photograph", "painting", "illustration"}
+
+
+def test_drawn_specs_pass_the_coherence_filter(tmp_path):
+    from thought_seeds.rows import incoherent
+    assert incoherent({"person": {"gender": "boy", "age": "20s"}}) == ["boy aged 20s"]
+    assert incoherent({"scene": {"setting": "library", "weather": "fog"}})
+    path = draw(11, 40, 40, str(tmp_path), rng_seed=5)
+    for line in open(path):
+        it = json.loads(line)
+        for spec in (it["specs"].values() if it["kind"] == "series" else [it["spec"]]):
+            assert not incoherent(spec)
+            assert all("nonbinary" not in (r["a"], r["b"]) for r in spec.get("relation", []))
