@@ -258,7 +258,20 @@ SCRUB = [(re.compile(p), r) for p, r in (
     (r"\b(?:chicken|turkey|duck) breasts?\b", "meat"), (r"\b(?:cake|pancake|waffle|cookie) batter\b", "dough"),
     (r"\b(?:water|beer|milk|glass) pitchers?\b", "jug"), (r"\bwalking sticks?\b", "cane"), (r"\brunning (?:shoes|water)\b", "item"),
     (r"\bsitting (?:room|area)\b", "lounge"), (r"\bsleeping bags?\b", "bedroll"), (r"\bwatch(?:es|ing)? tower\b", "tower"),
-    (r"\bstreet ?lights?\b", "street lamp"), (r"\bflat ?screen\b", "flatscreen"))]
+    (r"\bstreet ?lights?\b", "street lamp"), (r"\bflat ?screen\b", "flatscreen"),
+    # the words read off a sign or a label are not the picture: 'a shed that says fire hydrant and hose' (quoted text, or up to the
+    # clause's end)
+    (r"\b(says|saying|(?:that|which) reads|labeled|labelled|marked|written|printed)\s+"
+     r"(?!(?:and|as|on|in|at|next|beside|near|with|under|above|behind|by)\b)"            # 'written on it', 'written and ...': no words read
+     r"(?:\"[^\"]*\"|'[^']*'|[^.,;!?]*?(?=\s+(?:and\s+)?(?:there|on|in|at|next|beside|near|with|under|above|behind|by)\b"
+     r"|\s+and\s+(?:a|an|the)\b|[.,;!?]|$))", r"\1"),
+    # people that are figures, not people: 'a bride and groom cake topper', 'a plastic bride and groom', 'soldier figurines'
+    (r"\b(?:(?:plastic|toy|ceramic|porcelain|wooden|stone|paper|cardboard|metal|stuffed|inflatable|lego|miniature|tiny)\s+)?"
+     r"(?:bride and groom|man and woman|bride|groom|couple|man|woman|men|women|boy|girl|boys|girls|soldier|soldiers|santa|people|"
+     r"person|persons)\s+(?:cake\s+)?(topper|toppers|figurines?|figures?|statues?|statuettes?|dolls?|ornaments?|cutouts?|mannequins?)\b",
+     r"\1"),
+    (r"\b(?:plastic|toy|ceramic|porcelain|stuffed|inflatable|lego|miniature)\s+(?:bride and groom|man and woman|bride|groom|"
+     r"couple|man|woman|men|women|boy|girl|soldiers?|people|person)\b", "figurine"))]
 ANIMAL_CTX = re.compile(r"(?<![a-z0-9'])(" + "|".join(re.escape(w) for w in sorted(ANIMAL_WORDS, key=len, reverse=True)) + r")(?![a-z0-9'])")
 # words that name a person's kin, age or sex but name an animal's as often ('a baby elephant', 'the mother giraffe')
 ANIMAL_SHARED = {"baby", "babies", "infant", "mother", "mom", "father", "dad", "male", "female"}
@@ -373,7 +386,7 @@ NUMBER = {"two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven
           "a pair of": "2", "a couple of": "2", "2": "2", "3": "3", "4": "4", "5": "5"}
 RELATE = {"holding": "holding", "holds": "holding", "looking at": "looking at", "looks at": "looking at", "watching": "looking at",
           "watches": "looking at", "staring at": "looking at"}       # no 'carrying': 'carrying bananas on her head' is not holding
-PART_WORDS = {"door", "doors", "box", "boxes", "handle", "handles", "lid", "leash", "case", "cover", "stand", "rack", "cord",
+PART_WORDS = {"door", "doors", "box", "boxes", "handle", "handles", "lid", "leash", "case", "cover", "stand", "rack", "cord", "hose", "hoses",
               "seat", "carton", "wrapper", "crust", "string", "strings", "tail", "sail", "mast", "wheel", "wheels", "screen",
               "window", "light", "lights", "frame", "shelf", "station", "bag", "bags", "sign", "pole", "holder", "cage", "pen",
               "stall", "cart", "track", "tracks", "dish", "bowl", "plate", "basket", "costume", "food", "toy", "toys"}

@@ -77,6 +77,11 @@ def test_drawn_specs_pass_the_coherence_filter(tmp_path):
     assert incoherent({"form": {"medium": "cyanotype"}, "wear": {"clothing": "kimono", "colour": "crimson"}})
     assert not incoherent({"form": {"medium": "cyanotype"}, "wear": {"clothing": "kimono"}})
     assert not incoherent({"form": {"medium": "watercolour"}, "wear": {"colour": "crimson"}})
+    assert incoherent({"shot": {"light": "silhouette"}, "form": {"contrast": "colour"}})
+    from thought_seeds.rows import photo_ok
+    assert not photo_ok({"thing": {"name": "dog", "colour": "light blue"}}, "photograph")
+    assert photo_ok({"thing": {"name": "dog", "colour": "light blue"}}, "illustration")
+    assert photo_ok({"thing": {"name": "dog", "colour": "light brown"}}, "photograph")
     from thought_seeds.rows import tighten
     series = {"medium": {"shot": {"framing": "macro"}, "look": {"hair": "afro", "expression": "blush"},
                          "relation": [{"a": "boy", "rel": "holding", "b": "cup"}]},

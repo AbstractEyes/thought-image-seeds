@@ -90,8 +90,9 @@ OBJ = {}
 for _cat, (_name, _ws) in C.CATS.items():
     for _w in C._words(_ws):
         if _w in ("bike", "bikes", "skiing", "snowboarding", "skateboarding", "surfing", "plant", "plants", "screen", "screens",
-                  "glove", "gloves", "bat", "bats", "meter", "meters", "sub", "lab", "labs", "calf"):
-            continue                  # a bike is a bicycle or a motorcycle; 'plants' outdoors are not potted plants; the rest name acts
+                  "glove", "gloves", "bat", "bats", "meter", "meters", "sub", "lab", "labs", "calf", "trolley", "trolleys"):
+            continue                  # a bike is a bicycle or a motorcycle; 'plants' outdoors are not potted plants; a narrated
+                                      # 'trolley' is a kitchen or a luggage cart as often as a tram; the rest name acts
         OBJ[_w] = (_name if _cat != "tv" else ("monitor" if _w.startswith("monitor") else "television"), _cat)
 OBJ.update({"cycle": ("bicycle", "bicycle"), "cycles": ("bicycle", "bicycle"), "motor bike": ("motorcycle", "motorcycle"),
             "motorbikes": ("motorcycle", "motorcycle"), "mobile": ("phone", "cell phone"), "mobiles": ("phone", "cell phone"),

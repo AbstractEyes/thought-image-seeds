@@ -138,6 +138,16 @@ def test_counts_follow_the_captions():
     assert t["name"] == "dog" and "count" not in t
 
 
+def test_sign_text_and_figurines_are_not_the_picture():
+    c = coco._Cap("a small shed that says fire hydrant and hose.")
+    assert not c.cats.get("fire hydrant")                                   # the label's words, not a hydrant
+    c = coco._Cap("A woman reading a book on a bench.")
+    assert "book" in c.t                                                    # a reader's book stays
+    assert coco._people_said(coco._Cap("A cuddling bride and groom topper on a cake.")) == set()
+    assert coco._people_said(coco._Cap("A plastic bride and groom on a wedding cake.")) == set()
+    assert coco._people_said(coco._Cap("A bride and groom cutting a cake.")) == {"2"}       # real people stay people
+
+
 def test_unshout_drops_all_capitals_sentences():
     assert coco.unshout("A man near a TV. A sign for OMNI HOTELS. A MAN WITH A DOG") == "A man near a TV."
     assert core.drop_named(coco.unshout("A JOHN SMITH poster.")) == ""

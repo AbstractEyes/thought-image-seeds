@@ -160,7 +160,7 @@ def incoherent(spec: dict) -> list:
     thing = spec.get("thing", {}).get("name")
     if fr in TIGHT_FRAMING and thing and tp.SIZE.get(thing, 2) > 1:
         why.append(f"a whole {thing} in a {fr} frame")                         # a macro frame holds a hand-sized thing
-    if light == "silhouette" and form.get("contrast") in ("low", "gentle", "tonal"):
+    if light == "silhouette" and form.get("contrast") in ("low", "gentle", "tonal", "colour"):
         why.append(f"{form['contrast']} contrast under a silhouette")
     if spec.get("body", {}).get("pose") == "floating" and st and st not in WATER:
         why.append(f"floating at a {st}")
@@ -218,6 +218,18 @@ def domain_for(spec: dict, rng, mix=DRAWN_DOMAINS) -> str:
             return dom
     names, p = zip(*mix)
     return str(rng.choice(names, p=p))
+
+
+FURRED = {"dog", "cat", "horse"}
+UNNATURAL_FUR = {"blue", "light blue", "dark blue", "navy", "teal", "turquoise", "aqua", "purple", "violet", "lavender", "lilac",
+                 "plum", "indigo", "magenta", "pink", "coral", "peach", "green", "emerald", "olive", "mint", "scarlet", "crimson",
+                 "wine", "maroon", "mustard"}
+
+
+def photo_ok(spec: dict, domain: str) -> bool:
+    """A photograph shows a dog, a cat or a horse in a colour its coat can have (a light blue dog is an illustration's)."""
+    t = spec.get("thing", {})
+    return not (domain == "photograph" and t.get("name") in FURRED and t.get("colour") in UNNATURAL_FUR)
 
 
 def _medium_in_mix(spec: dict, mix) -> bool:
@@ -293,15 +305,19 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
                         license=row_license(seed), note="the deep spec is the seed: keep every record; cut the medium and simple "
                                                          "specs from it as subsets")
         else:
+            dom = None
             for _ in range(400):
                 specs = tighten(tp.sample_series(rng, lists))
                 if (nested(specs) and not any(incoherent(s) for s in specs.values()) and not thin(specs["simple"], "simple")
                         and not thin(specs["medium"], "medium") and tp.n_records(specs["deep"]) >= DEEP_MIN_DRAWN
                         and _medium_in_mix(specs["deep"], mix)):
-                    break
+                    dom = domain_for(specs["deep"], rng, mix)
+                    if photo_ok(specs["deep"], dom):
+                        break
             specs = {d: _tidy(s) for d, s in specs.items()}
             item = dict(kind="series", series=sid, ids=[f"art-{batch:03d}{k + i:03d}" for i in range(3)],
-                        domain=domain_for(specs["deep"], rng, mix), genre=None, specs=specs, seed_id=None, license=PERMISSIVE_ROW)
+                        domain=dom or domain_for(specs["deep"], rng, mix), genre=None, specs=specs, seed_id=None,
+                        license=PERMISSIVE_ROW)
         k += 3
         out.append(item)
     names, p = zip(*PILOT_DEPTHS)
@@ -314,14 +330,17 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
                         ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=seed["domain"], genre=seed["genre"], spec=seed["spec"],
                         seed_id=seed["seed_id"], hint=seed.get("hint", ""), license=row_license(seed))
         else:
+            dom = None
             for _ in range(400):
                 spec = tighten({depth: tp.sample_spec(rng, depth, lists)})[depth]
                 if (not incoherent(spec) and not thin(spec, depth) and _medium_in_mix(spec, mix)
                         and (depth != "deep" or tp.n_records(spec) >= DEEP_MIN_DRAWN)):
-                    break
+                    dom = domain_for(spec, rng, mix)
+                    if photo_ok(spec, dom):
+                        break
             spec = _tidy(spec)
             item = dict(kind="single", series=f"s-{batch:03d}{n_series + j:02d}" if n_series + j < 100 else None,
-                        ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=domain_for(spec, rng, mix), genre=None, spec=spec,
+                        ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=dom or domain_for(spec, rng, mix), genre=None, spec=spec,
                         seed_id=None, license=PERMISSIVE_ROW)
         k += 1
         out.append(item)
