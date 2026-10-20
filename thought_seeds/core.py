@@ -27,8 +27,8 @@ import unicodedata
 from collections import Counter
 
 TOOLS_FILE = os.environ.get("THOUGHT_TOOLS") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "thought_tools.py")
-TOOLS_SOURCE = "AbstractPhil/thought-symbolic-image-captions: tools/thought_tools.py, 'tools 0.1.2'"
-TOOLS_SHA256 = "ef03fa6a0f5a905861378f929bab64c3619ef40e57aab2fe7d99cd5ad1618ac1"     # the vendored copy, byte for byte
+TOOLS_SOURCE = "AbstractPhil/thought-symbolic-image-captions: tools/thought_tools.py, 'tools 0.1.3'"
+TOOLS_SHA256 = "dbcdf35fb130814c15cb3408bd67be9252836219089df326b199069c708a9c13"     # the vendored copy, byte for byte
 SEAL_SHA256 = "c7be2f6e59f53cb752eeb961d2fe1a1a36c374bbc67aaec51a96fb7814c79b7b"      # sha256 of json.dumps(seal(), sort_keys=True)
 
 

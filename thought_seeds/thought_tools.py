@@ -31,7 +31,7 @@ EXPRESSIONS = frozenset(("smile", "frown", "grin", "open mouth", "closed mouth",
                          "sweatdrop", "light smile", "evil smile", "grimace", "parted lips", "clenched teeth", "tongue out", "wide-eyed",
                          "crazy smile", "nervous smile", "seductive smile", "forced smile", "false smile", "one eye closed"))
 
-VERSION = "tools 0.1.2"
+VERSION = "tools 0.1.3"
 REPO = "AbstractPhil/thought-symbolic-image-captions"
 DEPTHS = ("simple", "medium", "deep")
 DOMAINS = ("photograph", "painting", "illustration", "sculpture", "design")
@@ -253,13 +253,14 @@ THINGS = ["umbrella", "bicycle", "lantern", "fish stall", "window", "mirror", "d
           "table", "tree", "lamp", "door", "bench", "sign", "flag", "bottle", "flower", "clock", "bird", "ladder", "rope", "basket",
           "fence", "wall", "statue", "fountain", "train", "kite", "drum", "violin", "sword", "candle", "suitcase", "camera"]
 VOCAB["thing"] = THINGS
-# the order the sampler fills a spec in: the first attributes of the first systems come first, so a simple spec is a person seen
-FILL = [("person", "gender"), ("look", "hair"), ("scene", "setting"), ("wear", "clothing"), ("look", "expression"), ("shot", "framing"),
+# the order the sampler fills a spec in: the first attributes of the first systems come first, so a simple spec is a person seen; the framing
+# before the expression, so a wide frame carries no expression
+FILL = [("person", "gender"), ("look", "hair"), ("scene", "setting"), ("wear", "clothing"), ("shot", "framing"), ("look", "expression"),
         ("scene", "time"), ("wear", "colour"), ("shot", "light"), ("person", "age"), ("body", "pose"), ("form", "compose"),
         ("thing", "name"), ("scene", "weather"), ("shot", "angle"), ("form", "palette"), ("thing", "colour"), ("form", "contrast"),
         ("look", "eyes"), ("shot", "lens"), ("form", "medium"), ("shot", "focus"), ("form", "style"), ("person", "role"),
         ("wear", "accessory"), ("thing", "position"), ("form", "texture"), ("body", "gesture"), ("scene", "layout"), ("form", "line")]
-SAMPLE_RECORDS = {"simple": (1, 4), "medium": (6, 10), "deep": (12, 22)}      # the sampler's share; the model's mood/intent/story fill the rest
+SAMPLE_RECORDS = {"simple": (2, 4), "medium": (7, 10), "deep": (12, 22)}      # the sampler's share; the model's mood/intent/story fill the rest
 SAMPLE_RELATIONS = {"simple": 0, "medium": 1, "deep": 2}
 # the sampler draws hues for clothing, things, eyes and palettes: the booru modifiers and the hair-only colours stay for the model's own use
 NOT_A_HUE = {"gradient", "colored", "two-tone", "streaked", "multicolored", "heterochromia", "dark", "light", "blonde", "platinum blonde",
@@ -282,12 +283,43 @@ SUNNY = {"hard sun", "dappled", "golden"}
 NIGHT = {"night", "midnight", "late evening"}
 LIGHT_TIME = {"hard sun": {"morning", "noon", "afternoon"}, "dappled": {"morning", "noon", "afternoon", "golden hour"},
               "golden": {"dawn", "morning", "afternoon", "golden hour", "dusk"}, "moonlight": NIGHT | {"blue hour"},
-              "overcast": set(VOCAB["time"]) - NIGHT, "street lamp": NIGHT | {"dawn", "dusk", "blue hour"}}
+              "overcast": set(VOCAB["time"]) - NIGHT, "street lamp": NIGHT | {"dawn", "dusk", "blue hour"}, "high key": set(VOCAB["time"]) - NIGHT}
 YOUNG, ADULT = {"child", "teen"}, {"young adult", "20s", "30s", "40s", "50s", "60s", "elderly"}
 AGE_OF = {"girl": YOUNG, "boy": YOUNG, "woman": ADULT, "man": ADULT}                                                       # person, nonbinary: any
 SUBJECT = {"nonbinary": "person"}                                                                                          # a relation's a end is a noun
 TIGHT = {"macro", "extreme close", "detail"}                                   # a tight frame shows no body pose and no gesture
 FULL_BODY = {"running", "jumping", "climbing", "dancing", "lying", "crouching", "kneeling", "floating", "stretching", "bowing"}   # not in a close-up or portrait
+WIDE = {"wide", "extreme wide", "establishing"}                                 # no readable expression at that scale
+CLOSE_RELS = {"holding", "touching", "same colour as"}                          # what a tight frame can show of a person and a thing
+CLOSE_RELS_2 = {"touching", "same colour as"}                                   # and of two things
+STILL_AIR = {"fog", "heat shimmer", "frost", "drizzle"}                         # no windblown hair in these
+DIM = NIGHT | {"dusk", "blue hour"}
+LIGHT_DIM = {"screen glow", "candle", "lantern", "firelight", "neon", "street lamp", "low key"}   # lights that read in the dark or indoors
+LIGHT_PLACE = {"street lamp": ("in", {"market street", "alley", "bus stop", "night market", "bridge", "harbour", "pier", "skate park", "courtyard",
+                                      "stadium", "rooftop", "cafe", "subway"}),
+               "neon": ("in", {"market street", "alley", "night market", "subway", "cafe", "bus stop", "rooftop", "skate park", "studio", "ballroom",
+                               "stadium", "harbour", "pier", "workshop", "laboratory", "kitchen", "attic"}),
+               "fluorescent": ("in", {"kitchen", "studio", "subway", "cafe", "library", "classroom", "greenhouse", "workshop", "laboratory",
+                                      "hospital ward", "bus stop", "stadium", "attic"}),
+               "spotlight": ("in", {"studio", "stadium", "ballroom", "cathedral", "temple", "night market", "skate park", "courtyard", "ruins", "rooftop"}),
+               "dappled": ("in", {"forest", "garden", "meadow", "river bank", "vineyard", "courtyard", "farm", "greenhouse", "ruins", "mountain pass",
+                                  "swamp", "cliff", "market street", "alley", "night market"}),
+               "soft window": ("not", WILD | {"beach", "bridge", "skate park", "pier", "harbour"}),
+               "candle": ("not", {"hospital ward", "laboratory", "subway", "stadium", "skate park", "bus stop", "classroom", "greenhouse"}),
+               "firelight": ("in", WILD | {"beach", "farm", "ruins", "courtyard", "kitchen", "workshop", "night market", "vineyard", "garden", "harbour",
+                                           "temple"})}
+PALE_HUES = {"white", "cream", "ivory", "beige", "sand", "peach", "mint", "lilac", "silver"}
+DARK_HUES = {"black", "charcoal", "navy", "maroon", "wine", "plum", "indigo", "slate"}
+
+
+def pale(h: str) -> bool:
+    return h in PALE_HUES or h.startswith(("light ", "pale "))
+
+
+def dark(h: str) -> bool:
+    return h in DARK_HUES or h.startswith("dark ")
+
+
 SIZE = {**{t: 1 for t in ("umbrella", "lantern", "cat", "book", "cup", "flag", "bottle", "flower", "clock", "bird", "rope", "basket", "kite",
                            "drum", "violin", "sword", "candle", "suitcase", "camera")},
         **{t: 2 for t in ("bicycle", "window", "mirror", "dog", "chair", "table", "lamp", "door", "bench", "sign", "ladder")},
@@ -335,40 +367,63 @@ PLACES = {"fish stall": ("in", {"market street", "night market", "harbour", "pie
           "wall": ("not", {"snowfield", "meadow", "cliff", "swamp", "beach", "forest", "river bank", "mountain pass"})}
 
 
-def in_place(thing: str, setting: str | None) -> bool:
-    """Whether the sampler draws `thing` in `setting` (PLACES; a thing not listed, or no setting yet: yes)."""
-    rule = PLACES.get(thing)
+def _placed(rule, setting: str | None) -> bool:
+    """A place rule ("in", settings) or ("not", settings) against a setting; no rule, or no setting yet: yes."""
     if rule is None or setting is None:
         return True
     return (setting in rule[1]) if rule[0] == "in" else (setting not in rule[1])
 
 
+def in_place(thing: str, setting: str | None) -> bool:
+    """Whether the sampler draws `thing` in `setting` (PLACES; a thing not listed, or no setting yet: yes)."""
+    return _placed(PLACES.get(thing), setting)
+
+
 def coherent(key: str, val: str, spec: dict) -> bool:
-    """The sampler's coherence of a value with the facts drawn before it: the age with the gender word, the weather with the setting and
-    the light, the light with the time of day, the thing with the setting."""
-    person, scene, shot = spec.get("person", {}), spec.get("scene", {}), spec.get("shot", {})
-    setting, time, light = scene.get("setting"), scene.get("time"), shot.get("light")
+    """The sampler's coherence of a value with the facts drawn before it: the age with the gender word; the setting and the weather with
+    windblown hair; the weather with the setting and the light; the light with the time of day and the setting (street lamps on streets,
+    fluorescent light indoors, dappled light under leaves, spotlights on stages; the glow of screens, candles, lanterns, fires and neon in
+    the dark or indoors); no expression at a wide frame; the thing in its setting; no pose or gesture at a tight frame and no whole-body
+    action at a close one; the palette and the contrast with low-key and high-key light."""
+    person, look, scene, shot = spec.get("person", {}), spec.get("look", {}), spec.get("scene", {}), spec.get("shot", {})
+    setting, time, light, framing = scene.get("setting"), scene.get("time"), shot.get("light"), shot.get("framing")
     if key == "person age":
         need = AGE_OF.get(person.get("gender"))
         return need is None or val in need
+    if key == "scene setting":
+        return look.get("hair") != "windblown" or val not in INDOOR
     if key == "scene weather":
         if setting in INDOOR and val not in INDOOR_WEATHER:
             return False
-        if val in WEATHER_NOT.get(setting, ()):
+        if val in WEATHER_NOT.get(setting, ()) or (look.get("hair") == "windblown" and val in STILL_AIR):
             return False
         if light in SUNNY and val in DULL:
             return False
         return light != "overcast" or val in DULL
     if key == "shot light":
         need = LIGHT_TIME.get(val)
-        return need is None or time is None or time in need
+        if need is not None and time is not None and time not in need:
+            return False
+        if val in LIGHT_DIM and time is not None and time not in DIM and setting not in INDOOR:
+            return False
+        return _placed(LIGHT_PLACE.get(val), setting)
+    if key == "look expression":
+        return framing not in WIDE
     if key == "thing name":
         return in_place(val, setting)
     if key in ("body pose", "body gesture"):
-        framing = shot.get("framing")
         if framing in TIGHT:
             return False
         return framing not in ("close-up", "portrait") or val not in FULL_BODY
+    if key == "form palette":
+        a_, b_ = val.split(" and ", 1)
+        if light == "low key" and pale(a_) and pale(b_):
+            return False
+        return not (light == "high key" and dark(a_) and dark(b_))
+    if key == "form contrast":
+        if light == "low key" and val in ("low", "gentle"):
+            return False
+        return not (light == "high key" and val in ("high", "harsh"))
     return True
 
 
@@ -470,7 +525,7 @@ def sample_spec(rng, depth: str, lists: dict | None = None) -> dict:
             for _ in range(40 if len(hues) >= 2 else 0):
                 i, j = rng.choice(len(hues), size=2, replace=False)
                 cand = f"{hues[i]} and {hues[j]}"
-                if len(cand) <= min(VAL_MAX, REC_MAX - len(key)):
+                if len(cand) <= min(VAL_MAX, REC_MAX - len(key)) and coherent(key, cand, spec):
                     val = cand
                     break
             if val is None:
@@ -489,17 +544,27 @@ def sample_spec(rng, depth: str, lists: dict | None = None) -> dict:
     setting = spec.get("scene", {}).get("setting")
     placed = [t for t in things if in_place(t, setting)] or things
     order = list(lists["relation"])
+    tight = spec.get("shot", {}).get("framing") in TIGHT                 # a tight frame shows holding, touching, the same colour
+    rels_1 = CLOSE_RELS if tight else set(order)
+    rels_2 = CLOSE_RELS_2 if tight else set(order)
     rels, b = [], None
     for i in range(k_rel):
         if i == 0:
             named = spec.get("thing", {}).get("name")
-            pairs = [(r, t) for r in order for t in ([named] if named else placed) if rel_ok(r, t, spec)]
+            pairs = [(r, t) for r in order if r in rels_1 for t in ([named] if named else placed) if rel_ok(r, t, spec)]
+            if not pairs and tight:                          # the named thing takes no close relation: another thing in the frame
+                pairs = [(r, t) for r in order if r in rels_1 for t in placed if rel_ok(r, t, spec)]
+            if not pairs:
+                pairs = [(r, t) for r in order for t in ([named] if named else placed) if rel_ok(r, t, spec)]
             if not pairs:                                    # a split whose relations none of the things fit: the nearest pairs
                 pairs = [(r, named or placed[0]) for r in order]
             rel, b = _pick(rng, pairs, order)
             rels.append({"a": a, "rel": rel, "b": b})
         else:
-            pairs = [(r, c) for r in order for c in placed if thing_rel_ok(r, b, c)]
+            near = [c for c in placed if SIZE.get(c, 2) == 1] if tight else placed      # a tight frame holds hand-sized things
+            pairs = [(r, c) for r in order if r in rels_2 for c in near if thing_rel_ok(r, b, c)]
+            if not pairs:
+                pairs = [(r, c) for r in order for c in placed if thing_rel_ok(r, b, c)]
             if not pairs:
                 pairs = [(r, c) for r in order for c in placed if c != b] or [(order[0], placed[0])]
             rel, c = _pick(rng, pairs, order)
