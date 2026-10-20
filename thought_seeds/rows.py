@@ -45,6 +45,7 @@ SKY_LIGHTS = {"hard sun", "golden", "dappled", "moonlight"}
 SKY_HOURS = {"dawn", "golden hour", "dusk", "blue hour"}                 # hours named by the colour of the sky
 WET_OR_WINDY = {"rain", "storm", "wind", "drizzle", "sleet", "snow"}
 DAY_HOURS = {"morning", "noon", "afternoon"}
+MOVING_POSES = {"walking", "running", "jumping", "dancing", "climbing", "floating", "stretching", "reaching"}
 FLAT_THINGS = {"window", "mirror", "painting", "poster", "flag", "map", "sign"}     # nothing is 'inside' them
 DARK_HOURS = {"blue hour", "night", "midnight", "late evening"}
 WIDE_COMPOSE = {"frame in frame", "horizon high", "horizon low", "leading lines"}      # compositions a macro frame cannot hold
@@ -129,6 +130,9 @@ def incoherent(spec: dict) -> list:
     for r in rels:
         if r.get("rel") == "inside" and r.get("b") in FLAT_THINGS:
             why.append(f"{r.get('a')} inside a {r['b']}")
+    pose = spec.get("body", {}).get("pose")
+    if pose in MOVING_POSES and any(r.get("rel") == "leaning on" and r.get("a") not in (None, r.get("b")) for r in rels):
+        why.append(f"{pose} while leaning on something")                       # a leaning person is at rest
     held = {r.get("b") for r in rels if r.get("rel") == "holding"}
     for r in rels:
         if r.get("a") in held and r.get("rel") in ("inside", "on", "under", "leaning on"):
