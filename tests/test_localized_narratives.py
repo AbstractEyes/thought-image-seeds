@@ -72,6 +72,15 @@ def test_one_person_takes_the_narrations_pronoun():
     assert ("person", "gender") not in f                                                  # both pronouns: no reading
 
 
+def test_animal_kin_and_a_second_thing():
+    f = ln.facts("There is a giraffe and a calf. The calf is drinking milk at its mother. There is grass on the ground.", False)
+    assert ("person", "count") not in f                                       # the giraffe's mother is not a person
+    f = ln.facts("A mother is holding her baby near a dog on the grass.", False)
+    assert ("person", "count") in f                                           # 'her baby': the people stay people
+    f = ln.facts("A man is leaning on this table. On the table there are glasses. At the left there is a table with trophies.", False)
+    assert f.get(("thing", "name")) == "table" and ("thing", "count") not in f   # 'this table ... a table': two tables
+
+
 def test_module_contract():
     for name in ("DATASET", "LICENSE", "URL", "ATTRIBUTION", "CITATION", "TAKEN"):
         assert isinstance(getattr(ln, name), str) and getattr(ln, name)

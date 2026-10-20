@@ -31,7 +31,7 @@ EXPRESSIONS = frozenset(("smile", "frown", "grin", "open mouth", "closed mouth",
                          "sweatdrop", "light smile", "evil smile", "grimace", "parted lips", "clenched teeth", "tongue out", "wide-eyed",
                          "crazy smile", "nervous smile", "seductive smile", "forced smile", "false smile", "one eye closed"))
 
-VERSION = "tools 0.1.5"
+VERSION = "tools 0.1.6"
 REPO = "AbstractPhil/thought-symbolic-image-captions"
 DEPTHS = ("simple", "medium", "deep")
 DOMAINS = ("photograph", "painting", "illustration", "sculpture", "design")
@@ -264,9 +264,10 @@ THINGS = ["umbrella", "bicycle", "lantern", "fish stall", "window", "mirror", "d
           "fence", "wall", "statue", "fountain", "train", "kite", "drum", "violin", "sword", "candle", "suitcase", "camera"]
 VOCAB["thing"] = THINGS
 # the order the sampler fills a spec in: the first attributes of the first systems come first, so a simple spec is a person seen; the framing
-# before the expression, so a wide frame carries no expression
-FILL = [("person", "gender"), ("look", "hair"), ("scene", "setting"), ("wear", "clothing"), ("shot", "framing"), ("look", "expression"),
-        ("scene", "time"), ("wear", "colour"), ("shot", "light"), ("person", "age"), ("body", "pose"), ("form", "compose"),
+# before the expression, so a wide frame carries no expression; the time and the light before the expression and the colours, so a
+# silhouette hides them
+FILL = [("person", "gender"), ("look", "hair"), ("scene", "setting"), ("wear", "clothing"), ("shot", "framing"), ("scene", "time"),
+        ("shot", "light"), ("look", "expression"), ("wear", "colour"), ("person", "age"), ("body", "pose"), ("form", "compose"),
         ("thing", "name"), ("scene", "weather"), ("shot", "angle"), ("form", "palette"), ("thing", "colour"), ("form", "contrast"),
         ("look", "eyes"), ("shot", "lens"), ("form", "medium"), ("shot", "focus"), ("form", "style"), ("person", "role"),
         ("wear", "accessory"), ("thing", "position"), ("form", "texture"), ("body", "gesture"), ("scene", "layout"), ("form", "line")]
@@ -298,9 +299,12 @@ YOUNG, ADULT = {"child", "teen"}, {"young adult", "20s", "30s", "40s", "50s", "6
 AGE_OF = {"girl": YOUNG, "boy": YOUNG, "woman": ADULT, "man": ADULT}                                                       # person, nonbinary: any
 SUBJECT = {"nonbinary": "person"}                                                                                          # a relation's a end is a noun
 TIGHT = {"macro", "extreme close", "detail"}                                   # a tight frame shows no body pose and no gesture
-FULL_BODY = {"running", "jumping", "climbing", "dancing", "lying", "crouching", "kneeling", "floating", "stretching", "bowing"}   # not in a close-up or portrait
+FULL_BODY = {"running", "jumping", "climbing", "dancing", "lying", "crouching", "kneeling", "floating", "stretching"}   # not in a close-up or portrait
 HANDS_BUSY = {"hands in pockets", "crossed arms", "arms raised"}                # no holding with these poses, no gesture either
 HANDS_BUSY_GESTURES = {"hands clasped", "clapping", "covering face"}            # no holding with these gestures
+CLOSE_POSES = {"leaning", "turning", "resting", "bowing"}                      # what a close-up or a portrait shows of a pose
+CLOSE_GESTURES = {"covering face", "saluting", "shrug", "waving", "thumbs up"}  # and of a gesture
+HIDDEN_BY_SILHOUETTE = {"look expression", "look eyes", "wear colour", "thing colour"}
 WIDE = {"wide", "extreme wide", "establishing"}                                 # no readable expression at that scale
 CLOSE_RELS = {"holding", "touching", "same colour as"}                          # what a tight frame can show of a person and a thing
 CLOSE_RELS_2 = {"touching", "same colour as"}                                   # and of two things
@@ -420,7 +424,9 @@ def coherent(key: str, val: str, spec: dict) -> bool:
         if val in LIGHT_DIM and setting not in INDOOR and (time is None or time not in DIM):
             return False
         return _placed(LIGHT_PLACE.get(val), setting)
-    if key == "look expression":
+    if key in HIDDEN_BY_SILHOUETTE and light == "silhouette":
+        return False
+    if key in ("look expression", "look eyes"):
         return framing not in WIDE
     if key == "thing name":
         return in_place(val, setting)
@@ -429,7 +435,9 @@ def coherent(key: str, val: str, spec: dict) -> bool:
     if key in ("body pose", "body gesture"):
         if framing in TIGHT:
             return False
-        return framing not in ("close-up", "portrait") or val not in FULL_BODY
+        if framing in ("close-up", "portrait"):
+            return val in (CLOSE_POSES if key == "body pose" else CLOSE_GESTURES)
+        return True
     if key == "form palette":
         a_, b_ = val.split(" and ", 1)
         if light == "low key" and pale(a_) and pale(b_):

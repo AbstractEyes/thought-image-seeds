@@ -86,12 +86,12 @@ def picture_of(seed: dict) -> str:
 
 def seed_depth(seed: dict) -> str:
     """The depth a seed can carry, by its records and its hint (the writer may add facts the hint states plainly; mood, intent and
-    story add their records): deep from 10 records and a 300-byte hint; medium from 6 records, or 4 with a 300-byte hint (a thinner
-    seed at medium leaves a reading that is mostly the writer's own)."""
+    story add their records): deep from 10 records and a 300-byte hint; medium from 5 records (a simple row holds at most 4), or 4
+    with a 300-byte hint; three or fewer stay simple (at medium the reading would be mostly the writer's own)."""
     n, h = tp.n_records(seed["spec"]), len(seed.get("hint", ""))
     if n >= 10 and h >= 300:
         return "deep"
-    if n >= 6 or (n >= 4 and h >= 300):
+    if n >= 5 or (n >= 4 and h >= 300):
         return "medium"
     return "simple"
 
@@ -116,10 +116,36 @@ def domain_for(spec: dict, rng, mix=DRAWN_DOMAINS) -> str:
     return str(rng.choice(names, p=p))
 
 
+def _medium_in_mix(spec: dict, mix) -> bool:
+    """A drawn spec whose medium implies a domain outside the batch's mix (a poster medium in a photograph-painting-illustration
+    batch) is drawn again."""
+    m = spec.get("form", {}).get("medium")
+    allowed = {d for d, _ in mix}
+    return all(dom in allowed for media, dom in ((PHOTO_MEDIA, "photograph"), (PAINT_MEDIA, "painting"), (SCULPT_MEDIA, "sculpture"),
+                                                (ILLUS_MEDIA, "illustration"), (DESIGN_MEDIA, "design")) if m in media)
+
+
 def row_license(seed: dict | None) -> str:
     if seed and any(seed["source"]["license"].startswith(a) for a in ATTRIBUTION_LICENSES):
         return seed["source"]["license"]
     return PERMISSIVE_ROW
+
+
+def pictures_drawn(rows_dir: str, batch: int) -> set:
+    """The pictures (picture_of) of every seed already drawn into another batch's specs under rows_dir and its sibling folders."""
+    import glob
+    out = set()
+    parent = os.path.dirname(os.path.abspath(rows_dir))
+    for f in glob.glob(os.path.join(parent, "*", "batch_*.specs.jsonl")):
+        if os.path.basename(f) == f"batch_{batch:03d}.specs.jsonl":
+            continue
+        with open(f, encoding="utf-8") as fh:
+            for line in fh:
+                it = json.loads(line)
+                if it.get("seed_id"):
+                    ds, _, sid = it["seed_id"].partition(":")
+                    out.add(picture_of({"seed_id": it["seed_id"], "source": {"dataset": ds, "id": sid}}))
+    return out
 
 
 def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int | None = None, seeds=None,
@@ -139,6 +165,7 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
     if seeds:
         pool = [s for s in read_seeds(seeds, held=False) if tp.n_records(s["spec"]) >= 2]
         rng.shuffle(pool)
+        used = pictures_drawn(rows_dir, batch)                    # a picture seeds one row in the whole dataset, not one a batch
 
     def take(pred=lambda s: True):
         """The next seed of the pool that passes `pred` and whose picture is not in the batch yet (COCO captions and Localized
@@ -164,7 +191,8 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
         else:
             for _ in range(400):
                 specs = tp.sample_series(rng, lists)
-                if not incoherent(specs["deep"]) and not thin(specs["simple"], "simple") and not thin(specs["medium"], "medium"):
+                if (not incoherent(specs["deep"]) and not thin(specs["simple"], "simple") and not thin(specs["medium"], "medium")
+                        and _medium_in_mix(specs["deep"], mix)):
                     break
             specs = {d: _tidy(s) for d, s in specs.items()}
             item = dict(kind="series", series=sid, ids=[f"art-{batch:03d}{k + i:03d}" for i in range(3)],
@@ -183,7 +211,7 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
         else:
             for _ in range(400):
                 spec = tp.sample_spec(rng, depth, lists)
-                if not incoherent(spec) and not thin(spec, depth):
+                if not incoherent(spec) and not thin(spec, depth) and _medium_in_mix(spec, mix):
                     break
             spec = _tidy(spec)
             item = dict(kind="single", series=f"s-{batch:03d}{n_series + j:02d}" if n_series + j < 100 else None,

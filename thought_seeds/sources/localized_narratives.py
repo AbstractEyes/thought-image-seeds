@@ -196,6 +196,23 @@ class _Text(C._Cap):
         self.starts = [n[0] for n in nouns]
 
 
+ANIMAL_AFTER = re.compile(r"\s+(?:" + "|".join(sorted(map(re.escape, C.ANIMAL_WORDS + ("calf", "calves", "cub", "cubs", "foal", "puppy",
+                                                                                       "kitten", "lamb", "chick", "chicks")),
+                                                     key=len, reverse=True)) + r")\b")
+
+
+def _animal_kin(x: "_Text", s: int, e: int) -> bool:
+    """A kin word said of an animal ('the calf drinks from its mother', 'a mother giraffe', 'a baby elephant'): not a person.
+    In a text about animals with no other person word and no he / she, every kin word is the animals'."""
+    w = x.t[s:e]
+    if w not in C.ANIMAL_SHARED:
+        return False
+    if x.t[max(0, s - 4):s] == "its " or ANIMAL_AFTER.match(x.t, e):
+        return True
+    return (x.animal and not HE.search(x.t) and not SHE.search(x.t)
+            and all(x.t[a:b] in C.ANIMAL_SHARED for a, b, k in x.nouns if k == "person"))
+
+
 def _one(values) -> str | None:
     vals = set(values)
     return vals.pop() if len(vals) == 1 else None
@@ -219,7 +236,7 @@ def facts(text: str, may_hold: bool) -> dict:
     if C.EXPLICIT.search(x.t):
         return {"explicit": True}
     t = x.t
-    pmentions = [(s, e, t[s:e]) for s, e, k in x.nouns if k == "person"]
+    pmentions = [(s, e, t[s:e]) for s, e, k in x.nouns if k == "person" and not _animal_kin(x, s, e)]
     words = [w for _, _, w in pmentions]
     # --- the person: an explicit number, or one single person named throughout
     count = gender = None
@@ -300,16 +317,18 @@ def facts(text: str, may_hold: bool) -> dict:
         f[("thing", "name")] = name
         f["_cat"] = cat
         spans = [o for o in x.objs if o[2][0] == name]
-        nums = []
-        for s, e, _ in spans:
+        nums, later_a = [], False
+        for k, (s, e, _) in enumerate(spans):
             pre = t[max(0, s - 24):s]
             cm = COUNT_M.iter(pre)
             if cm and pre[cm[-1][1]:].strip() in ("", *C.HUE, "small", "big", "large", "little"):
                 nums.append(cm[-1][2])
             elif SINGLE.search(pre) and t[s:e] not in PLURAL_OBJ:
                 nums.append("1")
+                later_a = later_a or k > 0
         plural_seen = any(t[s:e] in PLURAL_OBJ for s, e, _ in spans)
-        twice = nums.count("1") > 1                       # 'a car ... a car': two cars, each said of once
+        # 'a car ... a car', or 'this table ... a table with trophies': two of them, each said of once
+        twice = nums.count("1") > 1 or later_a
         n = _one(nums)
         if n and not (n == "1" and plural_seen) and not twice:
             f[("thing", "count")] = n

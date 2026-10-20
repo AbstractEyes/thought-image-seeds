@@ -470,6 +470,22 @@ class _Cap:
         return None
 
 
+UNGENDERED_YOUNG = re.compile(r"\b(?:child|children|kid|kids|baby|babies|toddler|toddlers|infant|infants|youngster)\b")
+GENDERED_PLURAL = {"man": re.compile(r"\b(?:men|guys|gentlemen|businessmen|policemen)\b"),
+                   "woman": re.compile(r"\b(?:women|ladies|businesswomen)\b"),
+                   "boy": re.compile(r"\bboys\b"), "girl": re.compile(r"\bgirls\b")}
+
+
+def _all_of(caps: list, gvotes: list, gender: str) -> bool:
+    """For two or more people: the gender word holds for all of them when no caption names another gender or an ungendered young
+    person, and two captions or more use the gender's own plural ('two women', 'men')."""
+    if any(v != gender for s in gvotes for v in s):
+        return False
+    if any(UNGENDERED_YOUNG.search(c.t) and not c.animal for c in caps):
+        return False
+    return sum(1 for c in caps if GENDERED_PLURAL[gender].search(c.t)) >= 2
+
+
 def _box_count(n: int, crowd: bool) -> str:
     """A count from boxes: exact up to three (small far instances are boxed too, so larger box counts are not trusted as numbers),
     'several' up to ten, 'many' beyond or for a crowd box."""
@@ -651,7 +667,10 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
         more = {v for s in votes for v in s if v == "plural" or (said and said != "plural" and int(v) > int(said))}
         said = said if said and said != "plural" and not more else None     # any caption with more people: the boxes decide
         sp.set("person", "count", stated or said or _box_count(n_people, P["crowd"]))
-        gender = _vote(_person_votes(caps, GENDER, bound=False, skip_animal_words=True))
+        gvotes = _person_votes(caps, GENDER, bound=False, skip_animal_words=True)
+        gender = _vote(gvotes)
+        if gender and sp.d.get("person", {}).get("count") != "1" and not _all_of(caps, gvotes, gender):
+            gender = None              # two or more people: the gender word must hold for all of them ('a woman and a child' is not two women)
         if gender:
             sp.set("person", "gender", gender)
         role = _vote([a | b for a, b in zip(_person_votes(caps, ROLE, bound=False, skip_animal_words=True),
