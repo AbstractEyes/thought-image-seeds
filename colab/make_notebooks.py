@@ -1,6 +1,6 @@
 """Writes the two Colab notebooks (photographs; art and prompts) that run the full seed builds on Colab's CPU. Each notebook installs
 this package from GitHub at a tag (no dependency changes: Colab already has numpy, pandas, pyarrow, requests, huggingface_hub), clones
-the trainer's thought_pack at a pinned commit, fetches and builds its sources, checks every seed, writes the attribution files and,
+fetches and builds its sources, checks every seed, writes the attribution files and,
 only when UPLOAD is set True, uploads seeds/ to the dataset repo with the HF_TOKEN from Colab's secrets.
 
     python colab/make_notebooks.py --repo=AbstractEyes/<name> --tag=v0.0.1"""
@@ -8,7 +8,6 @@ import json
 import os
 import sys
 
-TRAINER_COMMIT = "8a7b2cb0236778ed8b6561128a246ebfd7c7ac67"     # geolip-nano-beatrix-trainer origin/main (thought_pack 0.1.62 lists)
 DATASET_REPO = "AbstractPhil/thought-symbolic-image-captions"
 BOOKS = {
     "thought_seeds_photographs": ("Photographs: COCO, Localized Narratives, GQA, DOCCI",
@@ -40,16 +39,12 @@ their statistics, plus LICENSES.md and CITATIONS.bib. The upload to
 Run the cells in order; nothing needs a GPU.
 """),
         code(f"""
-# C1: install the package (no dependency changes) and the pinned attribute systems
+# C1: install the package (no dependency changes; the dataset's tools file travels inside it)
 import os, subprocess, sys
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--no-deps", "git+https://github.com/{repo}@{tag}"], check=True)
-if not os.path.isdir("/content/trainer_ref"):
-    subprocess.run(["git", "clone", "-q", "https://github.com/AbstractEyes/geolip-nano-beatrix-trainer.git", "/content/trainer_ref"], check=True)
-subprocess.run(["git", "-C", "/content/trainer_ref", "checkout", "-q", "{TRAINER_COMMIT}"], check=True)
-os.environ["THOUGHT_TRAINER_REF"] = "/content/trainer_ref/geolip/nano_beatrix"
 import thought_seeds
 from thought_seeds import core
-print("thought_seeds", thought_seeds.__version__, "| thought_pack", core.tp.VERSION, "|", len(core.KEYS), "keys")
+print("thought_seeds", thought_seeds.__version__, "| tools", core.tp.VERSION, "|", len(core.KEYS), "keys")
 """),
         code(f"""
 # C2: what this notebook builds

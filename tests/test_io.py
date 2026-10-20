@@ -17,4 +17,10 @@ def test_read_seeds_paths_folders_globs_and_filters(tmp_path):
 
 def test_trie_is_loaded_at_the_pinned_commit():
     from thought_seeds import core
-    assert core.TRAINER_COMMIT and len(core.KEYS) == 58 and sum(len(v) for v in core.HELD.values()) == 73
+    assert core.TOOLS_SHA256 and core.SEAL_SHA256 and len(core.KEYS) == 58 and sum(len(v) for v in core.HELD.values()) == 73
+
+
+def test_the_vendored_tools_file_is_unchanged():
+    import hashlib
+    from thought_seeds import core
+    assert hashlib.sha256(open(core.TOOLS_FILE, "rb").read()).hexdigest() == core.TOOLS_SHA256

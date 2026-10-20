@@ -1,8 +1,8 @@
 """thought_seeds.core - the seed contract of the art thought dataset (AbstractPhil/thought-symbolic-image-captions).
 
-A SEED is the hidden picture spec a generating model writes thought rows from: the FACTS of one picture in the systems trie of the
-trainer's thought_pack (0.1.62 lists, seal(frac=0.1, seed=2026)), never mood, intent or story (the generating model adds those, the mood
-with the record it is read from). One JSON object a line:
+A SEED is the hidden picture spec a generating model writes thought rows from: the FACTS of one picture in the dataset's systems trie
+(seal(frac=0.1, seed=2026) over the closed lists), never mood, intent or story (the generating model adds those, the mood with the record
+it is read from). One JSON object a line:
 
     {"seed_id": "<source>:<id>", "domain": "photograph|painting|illustration|sculpture|design", "genre": "<one or two words>",
      "spec": {system: {attribute: value}, "relation": [{"a", "rel", "b"}]}, "hint": "<optional source text, <= 600 bytes>",
@@ -11,61 +11,42 @@ with the record it is read from). One JSON object a line:
 Every value is plain lower-case ASCII of at most 20 bytes, key + value at most 27 bytes (one 32-byte frame slice); a closed-list key
 takes a value of its list; a seed whose records use a sealed value feeds the held split only.
 
-The attribute systems, the vocabularies and the seal live in the dataset's tooling module `thought_pack`
-(github.com/AbstractEyes/geolip-nano-beatrix-trainer, geolip/nano_beatrix/thought_pack.py). This package loads it at a PINNED commit:
-from THOUGHT_TRAINER_REF (a folder holding thought_pack.py and caption_pack.py) when set, else from a cache it fills once from GitHub
-(THOUGHT_SEEDS_CACHE, default ~/.cache/thought_seeds), so every build uses the same lists and the same sealed tenth."""
+The attribute systems, the vocabularies, the seal, the row validator and the seed gate live in the dataset's own tools file,
+`tools/thought_tools.py` of the dataset repo (numpy only). This package carries a verbatim copy, thought_seeds/thought_tools.py
+(TOOLS_SHA256 below; THOUGHT_TOOLS names another copy to use instead), and checks on import that its sealed tenth is the dataset's
+(SEAL_SHA256), so every build uses the same lists and the same held-out values."""
 from __future__ import annotations
 
 import hashlib
-import importlib
+import importlib.util
 import json
 import os
 import re
 import sys
-import types
 import unicodedata
-import urllib.request
 from collections import Counter
 
-TRAINER_REPO = "AbstractEyes/geolip-nano-beatrix-trainer"
-TRAINER_COMMIT = "8a7b2cb0236778ed8b6561128a246ebfd7c7ac67"          # thought_pack 0.1.62 lists and seal
-TRAINER_FILES = ("caption_pack.py", "thought_pack.py")
+TOOLS_FILE = os.environ.get("THOUGHT_TOOLS") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "thought_tools.py")
+TOOLS_SOURCE = "AbstractPhil/thought-symbolic-image-captions: tools/thought_tools.py, 'tools 0.1.0 (from trainer 0.1.64)'"
+TOOLS_SHA256 = "713a4d737da55337fe9151af09685f41c3ec9735855f1492c713f06b019bef29"     # the vendored copy, byte for byte
+SEAL_SHA256 = "c7be2f6e59f53cb752eeb961d2fe1a1a36c374bbc67aaec51a96fb7814c79b7b"      # sha256 of json.dumps(seal(), sort_keys=True)
 
 
-def trainer_dir() -> str:
-    """The folder thought_pack is loaded from: THOUGHT_TRAINER_REF, or the cache for TRAINER_COMMIT (filled from GitHub once)."""
-    ref = os.environ.get("THOUGHT_TRAINER_REF")
-    if ref:
-        return ref
-    root = os.environ.get("THOUGHT_SEEDS_CACHE", os.path.join(os.path.expanduser("~"), ".cache", "thought_seeds"))
-    folder = os.path.join(root, f"thought_pack_{TRAINER_COMMIT[:12]}")
-    if all(os.path.isfile(os.path.join(folder, f)) for f in TRAINER_FILES):
-        return folder
-    os.makedirs(folder, exist_ok=True)
-    for f in TRAINER_FILES:
-        url = f"https://raw.githubusercontent.com/{TRAINER_REPO}/{TRAINER_COMMIT}/geolip/nano_beatrix/{f}"
-        with urllib.request.urlopen(url, timeout=60) as r:
-            data = r.read()
-        tmp = os.path.join(folder, f + ".part")
-        with open(tmp, "wb") as fh:
-            fh.write(data)
-        os.replace(tmp, os.path.join(folder, f))
-    return folder
+def _load_tools():
+    name = "thought_seeds_tools"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, TOOLS_FILE)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def _load_thought_pack():
-    name = "thought_seeds_tpref"
-    if name not in sys.modules:
-        pkg = types.ModuleType(name)
-        pkg.__path__ = [trainer_dir()]
-        sys.modules[name] = pkg
-    return importlib.import_module(f"{name}.thought_pack")
-
-
-tp = _load_thought_pack()
-assert tuple(int(x) for x in tp.VERSION.split(".")) >= (0, 1, 62), f"thought_pack {tp.VERSION}: the lists changed names at 0.1.62"
-HELD = tp.seal()                                    # the sealed tenth of the 0.1.62 lists (final)
+tp = _load_tools()
+HELD = tp.seal()                                    # the sealed tenth (73 values; final)
+assert hashlib.sha256(json.dumps(HELD, sort_keys=True).encode()).hexdigest() == SEAL_SHA256, \
+    f"{TOOLS_FILE}: its sealed values differ from the dataset's; the held split would not match"
 KEYS = set(tp.keys())
 DOMAINS = tp.DOMAINS
 INTERPRETIVE = ("mood", "intent", "story")          # the generating model's systems: never in a seed
@@ -157,7 +138,7 @@ class Spec:
 
 def check_spec(spec: dict) -> list:
     """The spec's problems (empty when it passes): rule 2 of the row validator on the records, no interpretive system, the record
-    count. The whole seed then passes the trainer's own gate, thought_pack.validate_seed (0.1.64), in make_seed."""
+    count. The whole seed then passes the dataset's own gate, validate_seed, in make_seed."""
     p = []
     for system, attrs in spec.items():
         if system in INTERPRETIVE:
@@ -303,7 +284,7 @@ def make_seed(dataset: str, sid: str, domain: str, genre: str, spec: Spec | dict
         out["hint"] = hint[:HINT_MAX]
     out["source"] = {"dataset": dataset, "id": str(sid), "license": license, "url": url}
     out["held"] = held
-    if hasattr(tp, "validate_seed"):                 # the trainer's gate (0.1.64): the contract, the license, the seal
+    if hasattr(tp, "validate_seed"):                 # the dataset's gate: the contract, the license, the seal
         probs = list(tp.validate_seed(out, HELD))
         if probs:
             REJECTED[f"gate: {probs[0]}"[:90]] += 1
@@ -349,7 +330,7 @@ class Shards:
             st[k] = dict(sorted(st[k].items(), key=lambda kv: (-kv[1], str(kv[0])) if k != "records" else (kv[0], 0)))
         st["by_genre"] = dict(st["by_genre"].most_common(40))
         st["shards"] = self.shard + 1
-        st["thought_pack"] = tp.VERSION
+        st["tools"] = tp.VERSION
         if extra:
             st.update(extra)
         with open(os.path.join(self.dir, "stats.json"), "w", encoding="utf-8") as fh:

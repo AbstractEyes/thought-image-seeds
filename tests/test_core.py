@@ -1,4 +1,4 @@
-"""The seed core and the word maps against the trainer's thought_pack (0.1.62 lists, the final seal)."""
+"""The seed core and the word maps against the dataset's tools (the final seal)."""
 from thought_seeds import core, maps
 from thought_seeds.core import tp
 

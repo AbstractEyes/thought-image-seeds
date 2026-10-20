@@ -6,6 +6,6 @@
     from thought_seeds import core, build                 # build seeds (core loads the pinned attribute systems on first use)
 
 Command line: `thought-seeds --sources=coco --raw=raw --out=out --fetch=1` (or `python -m thought_seeds ...`)."""
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 from .io import read_seeds  # noqa: E402,F401  (light: no network, no trie)

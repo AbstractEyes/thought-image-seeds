@@ -1,9 +1,9 @@
-"""thought_seeds.maps - source words to the trie's closed values (thought_pack 0.1.62 lists).
+"""thought_seeds.maps - source words to the trie's closed values.
 
 Each map takes a source phrase (lower case, as it appears in captions, scene graphs, museum fields or prompts) to ONE value of a closed
 list; a phrase with no honest equivalent is left out rather than bent (a 'shirt' is not a 'jacket'). `find(text, MAP)` returns the
 values found in a text, longest phrase first, word-bounded, in order of appearance. Every value here is checked against the lists by
-the tests (tests/test_maps.py), so a list change in the trainer fails loudly."""
+the tests (tests/test_maps.py), so a list change in the dataset's tools fails loudly."""
 from __future__ import annotations
 
 import re

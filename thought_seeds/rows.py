@@ -2,7 +2,7 @@
 
 A BATCH is the unit the writing model works in: a specs file (one JSON object a line, each a series of three nested specs or a single
 spec with its depth, its domain, its ids already allotted) and the rows file written from it. The checker runs the dataset's own row
-validator (thought_pack.validate, validate_series) and adds what a curator needs on top: ids unique and inside the batch's range, every
+validator (thought_tools.validate, validate_series) and adds what a curator needs on top: ids unique and inside the batch's range, every
 series whole (ranks 1-3 = simple, medium, deep), a seeded row keeping every record of its seed, the license field, and a list of
 possible real names (capitalized words inside a sentence) for review.
 
@@ -54,7 +54,7 @@ def row_license(seed: dict | None) -> str:
 def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int | None = None, seeds=None) -> str:
     """Writes <rows_dir>/batch_BBB.specs.jsonl: n_series series of three nested specs and n_singles single specs (depth by the pilot
     mix). With `seeds` (seed files), every spec is a real seed's spec (a single row at the depth its record count fits, or the deep
-    rank of a series whose medium and simple ranks are cut from it by the writer); without, specs are drawn by thought_pack's
+    rank of a series whose medium and simple ranks are cut from it by the writer); without, specs are drawn by the tools'
     sampler from the training lists. -> the path."""
     import numpy as np
     assert 0 < batch < 1000 and 0 <= n_series < 100 and n_series * 3 + n_singles < 1000

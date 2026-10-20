@@ -68,10 +68,10 @@ full builds run on a Colab CPU with the two notebooks above. Each run prints the
 
 ## The attribute systems
 
-The systems, their vocabularies and the sealed tenth come from the dataset's tooling module `thought_pack`
-([geolip-nano-beatrix-trainer](https://github.com/AbstractEyes/geolip-nano-beatrix-trainer)), loaded at a pinned commit
-(`thought_seeds.core.TRAINER_COMMIT`): fetched once from GitHub into `~/.cache/thought_seeds` (or `THOUGHT_SEEDS_CACHE`), or read from
-a local folder named by `THOUGHT_TRAINER_REF`. Every build therefore uses the same lists and the same held-out values.
+The systems, their vocabularies, the sealed tenth, the row validator and the seed gate come from the dataset's own tools file
+(`tools/thought_tools.py` in the dataset repo). The package carries a verbatim copy (`thought_seeds/thought_tools.py`, its hash in
+`thought_seeds.core.TOOLS_SHA256`) and checks on import that its sealed values are the dataset's, so every build uses the same lists
+and the same held-out values. `THOUGHT_TOOLS` may name another copy of the file.
 
 ## Layout
 

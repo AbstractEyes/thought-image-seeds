@@ -122,7 +122,7 @@ def main(argv=None) -> int:
         print(f"the full report: {out}")
         return 0 if not rep["problems"] and not rep["unparsed"] else 1
     names =available() if args.get("sources", "all") == "all" else args["sources"].split(",")
-    print(f"thought_seeds {sys.modules['thought_seeds'].__version__}; thought_pack {core.tp.VERSION}; sources {names}; "
+    print(f"thought_seeds {sys.modules['thought_seeds'].__version__}; tools {core.tp.VERSION}; sources {names}; "
           f"priority {_lower_priority(float(args.get('gb', 16)))}", flush=True)
     res = run(names, args["raw"], args["out"], int(args["limit"]) if "limit" in args else None, args.get("fetch") == "1")
     print(json.dumps({k: dict(seeds=v["seeds"], held=v["held"]) for k, v in res.items()}))
