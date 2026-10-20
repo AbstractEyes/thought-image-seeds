@@ -130,7 +130,8 @@ class _M:
         self.pat = _pat(self.map)
 
     def iter(self, text: str) -> list:
-        return [(m.start(), m.end(), self.map[m.group(1)]) for m in self.pat.finditer(text)]
+        """(start, end, value) of every match; a blocking phrase of the shared maps (value None) consumes its words and yields nothing."""
+        return [(m.start(), m.end(), self.map[m.group(1)]) for m in self.pat.finditer(text) if self.map[m.group(1)] is not None]
 
 
 def _words(s: str) -> tuple:
@@ -471,7 +472,7 @@ class _Cap:
 
 def _vote(votes: list, min_votes: int = 2):
     """votes: one set of values a caption. The value at least `min_votes` captions give and no other value ties (None otherwise)."""
-    c = Counter(v for s in votes for v in set(s))
+    c = Counter(v for s in votes for v in set(s) if v is not None)    # None: a blocking phrase of the shared maps
     if not c:
         return None
     top = sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))

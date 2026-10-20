@@ -36,6 +36,24 @@ EXPLORE = "https://cocodataset.org/#explore?id={}"
 
 STATS: Counter = Counter()
 
+# the narrators speak of looking ("In this picture I can see a man ..."); the dataset's rows never speak of seeing a picture, so the
+# hint keeps what is seen and drops the act of seeing
+_LOOKING = re.compile(
+    r"\b(?:(?:in|on|at)\s+(?:this|the)\s+(?:image|picture|photo|photograph|pic|frame|scene)\s*,?\s*)?"
+    r"(?:i|we|you)\s+(?:can|could)\s+(?:also\s+)?(?:see|notice|observe|find|spot)\s+(?:that\s+)?", re.I)
+_VIEW = re.compile(r"\b(?:in|on|at)\s+(?:this|the)\s+(?:image|picture|photo|photograph|pic)\s*,?\s*", re.I)
+
+
+def plain_narration(text: str) -> str:
+    """A narration without its acts of looking: 'In this picture I can see a man and a dog. We can also see trees.' -> 'A man and a
+    dog. Trees.'; 'In this image there is a cat' -> 'There is a cat'."""
+    out = []
+    for s in re.split(r"(?<=[.!?])\s+", text.strip()):
+        s = _VIEW.sub("", _LOOKING.sub("", s)).strip(" ,")
+        if s:
+            out.append(s[0].upper() + s[1:])
+    return " ".join(out)
+
 
 def fetch(raw_dir: str) -> dict:
     """The two captions-only files (2.4 MB + 40 MB) into raw_dir/localized_narratives/; skipped when present at their size."""
@@ -464,7 +482,7 @@ def build(image_id, narrations: list) -> dict | None:
     name = chosen.get(("thing", "name"))
     cat = next((f["_cat"] for f in fs if name and f.get(("thing", "name")) == name and f.get("_cat")), "")
     longest = max(narrations, key=len)
-    hint = core.make_hint(_sentences(core.drop_named(C.unshout(longest))))
+    hint = core.make_hint(_sentences(core.drop_named(C.unshout(plain_narration(longest)))))
     genre = _genre(sp.spec(), cat, any(f.get("_food") for f in fs))
     seed = core.make_seed(DATASET, sid, "photograph", genre, sp, hint, LICENSE, EXPLORE.format(sid), group=f"coco-image:{sid}")
     if seed is None:

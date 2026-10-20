@@ -41,7 +41,7 @@ def test_seeds_from_the_fixture(tmp_path):
         "wear": {"clothing": "jacket", "colour": "blue"},
         "relation": [{"a": "lamp", "rel": "behind", "b": "woman"}]}
     assert s["genre"] == "interior" and s["domain"] == "photograph" and s["held"] is False
-    assert "Picasso" not in s["hint"] and s["hint"].startswith("In this image there is a woman wearing a blue jacket")
+    assert "Picasso" not in s["hint"] and s["hint"].startswith("There is a woman wearing a blue jacket")
     assert s["source"] == {"dataset": "localized_narratives", "id": "11", "license": "CC BY 4.0",
                            "url": "https://cocodataset.org/#explore?id=11"}
     assert core.check_spec(s["spec"]) == []
@@ -65,3 +65,9 @@ def test_module_contract():
     for name in ("DATASET", "LICENSE", "URL", "ATTRIBUTION", "CITATION", "TAKEN"):
         assert isinstance(getattr(ln, name), str) and getattr(ln, name)
     assert ln.LICENSE == "CC BY 4.0" and "@inproceedings{PontTuset_eccv2020" in ln.CITATION
+
+
+def test_plain_narration_drops_the_act_of_looking():
+    from thought_seeds.sources.localized_narratives import plain_narration
+    assert plain_narration("In this picture I can see a man and a dog. We can also see trees. In this image there is a cat.") == \
+        "A man and a dog. Trees. There is a cat."
