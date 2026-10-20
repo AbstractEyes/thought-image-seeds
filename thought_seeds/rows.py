@@ -46,6 +46,7 @@ SKY_HOURS = {"dawn", "golden hour", "dusk", "blue hour"}                 # hours
 WET_OR_WINDY = {"rain", "storm", "wind", "drizzle", "sleet", "snow"}
 DAY_HOURS = {"morning", "noon", "afternoon"}
 MOVING_POSES = {"walking", "running", "jumping", "dancing", "climbing", "floating", "stretching", "reaching"}
+MONO_MEDIA = {"cyanotype", "silver print", "charcoal", "pencil"}                     # a picture in one colour of its medium
 FLAT_THINGS = {"window", "mirror", "painting", "poster", "flag", "map", "sign"}     # nothing is 'inside' them
 DARK_HOURS = {"blue hour", "night", "midnight", "late evening"}
 WIDE_COMPOSE = {"frame in frame", "horizon high", "horizon low", "leading lines"}      # compositions a macro frame cannot hold
@@ -145,6 +146,11 @@ def incoherent(spec: dict) -> list:
     if light == "silhouette" and any(r.get("rel") == "same colour as" for r in rels):
         why.append("a colour relation under a silhouette")
     form = spec.get("form", {})
+    if form.get("medium") in MONO_MEDIA:
+        colours = [f"{s} {a}" for s, a in (("wear", "colour"), ("thing", "colour"), ("look", "eyes"), ("form", "palette"))
+                   if spec.get(s, {}).get(a)] + [r["rel"] for r in rels if r.get("rel") == "same colour as"]
+        if colours:
+            why.append(f"{', '.join(colours)} on a {form['medium']}")            # one colour of ink, silver or graphite
     if spec.get("shot", {}).get("lens") and form.get("medium") and form["medium"] not in PHOTO_MEDIA | {"3d render", "digital painting"}:
         why.append(f"a {spec['shot']['lens']} lens on a {form['medium']}")       # a lens is the camera's, not a lithograph's
     if fr in TIGHT_FRAMING and form.get("compose") in WIDE_COMPOSE:

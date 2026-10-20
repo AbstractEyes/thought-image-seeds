@@ -74,6 +74,9 @@ def test_drawn_specs_pass_the_coherence_filter(tmp_path):
     assert incoherent({"relation": [{"a": "man", "rel": "holding", "b": "drum"}, {"a": "drum", "rel": "leaning on", "b": "chair"}]})
     assert incoherent({"body": {"pose": "jumping"}, "relation": [{"a": "girl", "rel": "leaning on", "b": "horse"}]})
     assert not incoherent({"body": {"pose": "resting"}, "relation": [{"a": "girl", "rel": "leaning on", "b": "horse"}]})
+    assert incoherent({"form": {"medium": "cyanotype"}, "wear": {"clothing": "kimono", "colour": "crimson"}})
+    assert not incoherent({"form": {"medium": "cyanotype"}, "wear": {"clothing": "kimono"}})
+    assert not incoherent({"form": {"medium": "watercolour"}, "wear": {"colour": "crimson"}})
     from thought_seeds.rows import tighten
     series = {"medium": {"shot": {"framing": "macro"}, "look": {"hair": "afro", "expression": "blush"},
                          "relation": [{"a": "boy", "rel": "holding", "b": "cup"}]},
