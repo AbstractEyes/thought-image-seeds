@@ -23,6 +23,8 @@ from .io import read_seeds
 
 PILOT_DOMAINS = (("photograph", 0.45), ("painting", 0.25), ("illustration", 0.20), ("sculpture", 0.05), ("design", 0.05))
 PILOT_DEPTHS = (("simple", 0.30), ("medium", 0.45), ("deep", 0.25))
+# a sampled spec is a person in a scene: it can be a photograph, a painting or an illustration; sculpture and design come from seeds
+DRAWN_DOMAINS = (("photograph", 0.50), ("painting", 0.28), ("illustration", 0.22))
 PHOTO_MEDIA = {"photograph", "silver print", "cyanotype", "polaroid", "film still"}
 PAINT_MEDIA = {"oil painting", "watercolour", "gouache", "acrylic", "fresco", "tempera", "pastel", "ink", "charcoal", "pencil"}
 SCULPT_MEDIA = {"bronze", "marble", "clay"}
@@ -32,7 +34,7 @@ PERMISSIVE_ROW = "Apache-2.0"
 ATTRIBUTION_LICENSES = ("CC BY", "ODC-By")      # a row from such a seed keeps the seed's license (attribution travels with it)
 
 
-def domain_for(spec: dict, rng, mix=PILOT_DOMAINS) -> str:
+def domain_for(spec: dict, rng, mix=DRAWN_DOMAINS) -> str:
     """The domain a spec's medium implies, else one drawn by the mix."""
     m = spec.get("form", {}).get("medium")
     for media, dom in ((PHOTO_MEDIA, "photograph"), (PAINT_MEDIA, "painting"), (SCULPT_MEDIA, "sculpture"),

@@ -28,3 +28,9 @@ def test_check_rows_catches_license_spec_and_missing(tmp_path):
 def test_possible_names_flags_capitalized_words_inside_sentences():
     row = {"thoughts": [{"step": "see", "text": "A woman reads, and Margaret smiles."}], "wordings": {"caption": "A dog."}}
     assert possible_names(row) == ["Margaret"]
+
+
+def test_drawn_specs_are_photographs_paintings_or_illustrations(tmp_path):
+    path = draw(9, 30, 30, str(tmp_path), rng_seed=3)
+    doms = {json.loads(line)["domain"] for line in open(path)}
+    assert doms <= {"photograph", "painting", "illustration"}
