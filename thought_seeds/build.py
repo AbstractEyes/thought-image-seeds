@@ -75,20 +75,44 @@ def run(names, raw: str, out: str, limit: int | None = None, fetch: bool = False
     return results
 
 
+# the license texts the LICENSES.md cells link (CC BY 4.0 section 3(a)(1)(C) asks for the text or a link to it with every use)
+LICENSE_URLS = {"cc0-1.0": "https://creativecommons.org/publicdomain/zero/1.0/", "cc-by-4.0": "https://creativecommons.org/licenses/by/4.0/",
+                "apache-2.0": "https://www.apache.org/licenses/LICENSE-2.0", "odc-by-1.0": "https://opendatacommons.org/licenses/by/1-0/",
+                "mit": "https://opensource.org/licenses/MIT"}
+# the changes made to a source, for a module without its own MODIFIED text (CC BY 4.0 section 3(a)(1)(B) asks that they be said)
+DEFAULT_MODIFIED = ("modified by this dataset: values extracted from the source and mapped to the dataset's closed vocabulary; any hint "
+                    "is the source's text or a sentence built from its fields, filtered and shortened")
+
+
+def license_cell(lic: str) -> str:
+    """A module's LICENSE with each license name linked to its text: 'CC0 1.0 (records); CC BY 4.0 (description hints)' ->
+    '[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (records); [CC BY 4.0](...) (description hints)'."""
+    out = []
+    for part in lic.split(";"):
+        part = part.strip()
+        name = part.split("(")[0].strip()
+        url = LICENSE_URLS.get(core.tp.license_key(name))
+        out.append(part.replace(name, f"[{name}]({url})", 1) if url else part)
+    return "; ".join(out)
+
+
 def docs(out: str) -> None:
     """LICENSES.md (the dataset's license and every source's), CITATIONS.bib, seeds/README.md (one line per source)."""
     mods = [module(n) for n in available()]
     os.makedirs(os.path.join(out, "seeds"), exist_ok=True)
     lic = ["# Licenses and attributions", "",
            "The dataset's own rows and code: Apache-2.0. Each seed keeps the license of its source in its `source.license` field, and a",
-           "row written from a seed carries the stricter of the two. Every source below allows derived, redistributed and commercial use",
-           "under its terms (CC0, CC BY 4.0, ODC-By, Apache-2.0 or MIT); no share-alike or non-commercial source is included.", "",
-           "| source | license | attribution | what was taken | primary page |", "|---|---|---|---|---|"]
+           "row written from a seed carries the stricter of the two. Every source below licenses its data under CC0, CC BY 4.0, ODC-By,",
+           "Apache-2.0 or MIT, which allow derived, redistributed and commercial use; no share-alike or non-commercial source is",
+           "included. A source that attaches terms of its own names them in its row. Each license cell links the license text, and",
+           "each row says how the source's material was changed here.", "",
+           "| source | license | attribution | what was taken | changes made | primary page |", "|---|---|---|---|---|---|"]
     bib, readme = [], ["# Seeds", "", "Hidden picture specifications drawn from licensed sources; one JSON object a line "
                        "(`seeds/<source>/<source>-NNNNN.jsonl`).", "", "| source | license | what was taken |", "|---|---|---|"]
     for m in mods:
-        lic.append(f"| {m.DATASET} | {m.LICENSE} | {m.ATTRIBUTION} | {getattr(m, 'TAKEN', '')} | {m.URL} |")
-        readme.append(f"| {m.DATASET} | {m.LICENSE} | {getattr(m, 'TAKEN', '')} |")
+        lic.append(f"| {m.DATASET} | {license_cell(m.LICENSE)} | {m.ATTRIBUTION} | {getattr(m, 'TAKEN', '')} | "
+                   f"{getattr(m, 'MODIFIED', DEFAULT_MODIFIED)} | {m.URL} |")
+        readme.append(f"| {m.DATASET} | {license_cell(m.LICENSE)} | {getattr(m, 'TAKEN', '')} |")
         bib.append(m.CITATION.strip())
     with open(os.path.join(out, "LICENSES.md"), "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lic) + "\n")
