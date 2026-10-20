@@ -1,5 +1,15 @@
+# environments and editors
+.venv/
+venv/
+.idea/
+.vscode/
+# build outputs
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+# data (downloads and built seeds stay out of the repository)
 raw/
 out/
-__pycache__/
-*.pyc
-.pytest_cache/

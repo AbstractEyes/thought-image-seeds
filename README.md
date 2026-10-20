@@ -1,4 +1,8 @@
-# thought-seeds
+# thought-image-seeds
+
+[![tests](https://github.com/AbstractEyes/thought-image-seeds/actions/workflows/tests.yml/badge.svg)](https://github.com/AbstractEyes/thought-image-seeds/actions/workflows/tests.yml)
+[![Open the photographs build in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AbstractEyes/thought-image-seeds/blob/main/colab/thought_seeds_photographs.ipynb)
+[![Open the art and prompts build in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AbstractEyes/thought-image-seeds/blob/main/colab/thought_seeds_art_prompts.ipynb)
 
 Licensed image descriptions, scene graphs, museum metadata and prompts, turned into **hidden picture specifications** ("seeds") for
 the text-only art thought dataset
@@ -8,6 +12,39 @@ A row of that dataset is one act of thinking about a picture nobody sees: the pi
 a stated depth (simple, medium, deep), the wordings an artist would use (caption, prompt, tags, critique) and questions whose answers
 sit in the records. A seed is the starting point of such a row: the facts of one real picture, taken from a licensed source, in the
 dataset's systems of attributes. No image is downloaded or stored; only annotations, metadata and text.
+
+## Install
+
+```bash
+pip install git+https://github.com/AbstractEyes/thought-image-seeds
+```
+
+For development: clone, then `pip install -r requirements.txt` (the pinned versions) and `pip install -e ".[test]"`.
+
+## Read the seeds
+
+```python
+from thought_seeds import read_seeds
+from thought_seeds.hub import seed_files, load
+
+for seed in read_seeds("out/seeds/coco"):          # a file, a folder, a glob or a list of them
+    print(seed["spec"])
+
+print(seed_files("met"))                             # the published shards of one source
+paintings = list(load("met", domain="painting", held=False))
+```
+
+## Build them
+
+```bash
+thought-seeds --sources=coco,parti --raw=raw --out=out --fetch=1 --limit=2000
+thought-seeds --docs=out                             # LICENSES.md, CITATIONS.bib, seeds/README.md
+python -m pytest -q
+```
+
+`--sources=all` builds every source; `--fetch=1` downloads what each source needs (annotations and metadata only) into `--raw`. The
+full builds run on a Colab CPU with the two notebooks above. Each run prints the job size, the time spent and the time left, and writes
+`seeds/<source>/stats.json` (counts, record histogram, key coverage, rejections by reason) beside the shards.
 
 ## A seed
 
@@ -26,21 +63,29 @@ dataset's systems of attributes. No image is downloaded or stored; only annotati
 - `hint`: optional source text (at most 600 bytes) a writer may draw further facts from; sentences that may hold a real person's name
   are removed.
 - `source`: the dataset, the item's id there, its license and its page. Every source allows derived and redistributed use with
-  attribution (CC0, CC BY 4.0, ODC-By, Apache-2.0, MIT); see LICENSES.md and CITATIONS.bib.
+  attribution (CC0, CC BY 4.0, ODC-By, Apache-2.0, MIT); see LICENSES.md and CITATIONS.bib in the dataset.
 - `held`: a tenth of the vocabulary is sealed for evaluation; a seed that uses a sealed value belongs to the held-out split.
 
-## Use
+## The attribute systems
 
-```bash
-pip install -r requirements.txt
-python -m thought_seeds.build --sources=coco,parti --raw=raw --out=out --fetch=1 --limit=2000
-python -m thought_seeds.build --docs=out
-python -m pytest -q tests
+The systems, their vocabularies and the sealed tenth come from the dataset's tooling module `thought_pack`
+([geolip-nano-beatrix-trainer](https://github.com/AbstractEyes/geolip-nano-beatrix-trainer)), loaded at a pinned commit
+(`thought_seeds.core.TRAINER_COMMIT`): fetched once from GitHub into `~/.cache/thought_seeds` (or `THOUGHT_SEEDS_CACHE`), or read from
+a local folder named by `THOUGHT_TRAINER_REF`. Every build therefore uses the same lists and the same held-out values.
+
+## Layout
+
 ```
-
-The attribute systems and their vocabularies come from the dataset's tooling module `thought_pack`
-([geolip-nano-beatrix-trainer](https://github.com/AbstractEyes/geolip-nano-beatrix-trainer)); set `THOUGHT_TRAINER_REF` to the folder
-holding `thought_pack.py` and `caption_pack.py` of a pinned checkout.
+thought_seeds/
+  core.py      the seed contract: value cleaning, the byte budget, closed lists, the held-out routing, hints, the real-name filter, shards
+  maps.py      source words to the closed values (colours, settings, poses, media, styles, relations, ...)
+  build.py     the runner and the attribution files (the `thought-seeds` command)
+  io.py        reading seed files
+  hub.py       listing and downloading the published seeds
+  sources/     one importer per source: fetch() and seeds()
+colab/         the two build notebooks and their generator
+tests/
+```
 
 ## License
 

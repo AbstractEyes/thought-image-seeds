@@ -9,8 +9,12 @@ with the record it is read from). One JSON object a line:
      "source": {"dataset", "id", "license", "url"}, "held": true|false}
 
 Every value is plain lower-case ASCII of at most 20 bytes, key + value at most 27 bytes (one 32-byte frame slice); a closed-list key
-takes a value of its list; a seed whose records use a sealed value feeds the held split only. The trainer module is loaded from a
-pinned clone (THOUGHT_TRAINER_REF), never from a working checkout."""
+takes a value of its list; a seed whose records use a sealed value feeds the held split only.
+
+The attribute systems, the vocabularies and the seal live in the dataset's tooling module `thought_pack`
+(github.com/AbstractEyes/geolip-nano-beatrix-trainer, geolip/nano_beatrix/thought_pack.py). This package loads it at a PINNED commit:
+from THOUGHT_TRAINER_REF (a folder holding thought_pack.py and caption_pack.py) when set, else from a cache it fills once from GitHub
+(THOUGHT_SEEDS_CACHE, default ~/.cache/thought_seeds), so every build uses the same lists and the same sealed tenth."""
 from __future__ import annotations
 
 import hashlib
@@ -21,23 +25,47 @@ import re
 import sys
 import types
 import unicodedata
+import urllib.request
 from collections import Counter
 
-TRAINER_REF = os.environ.get("THOUGHT_TRAINER_REF", r"X:\thought_seeds\trainer_ref\geolip\nano_beatrix")
+TRAINER_REPO = "AbstractEyes/geolip-nano-beatrix-trainer"
+TRAINER_COMMIT = "8a7b2cb0236778ed8b6561128a246ebfd7c7ac67"          # thought_pack 0.1.62 lists and seal
+TRAINER_FILES = ("caption_pack.py", "thought_pack.py")
+
+
+def trainer_dir() -> str:
+    """The folder thought_pack is loaded from: THOUGHT_TRAINER_REF, or the cache for TRAINER_COMMIT (filled from GitHub once)."""
+    ref = os.environ.get("THOUGHT_TRAINER_REF")
+    if ref:
+        return ref
+    root = os.environ.get("THOUGHT_SEEDS_CACHE", os.path.join(os.path.expanduser("~"), ".cache", "thought_seeds"))
+    folder = os.path.join(root, f"thought_pack_{TRAINER_COMMIT[:12]}")
+    if all(os.path.isfile(os.path.join(folder, f)) for f in TRAINER_FILES):
+        return folder
+    os.makedirs(folder, exist_ok=True)
+    for f in TRAINER_FILES:
+        url = f"https://raw.githubusercontent.com/{TRAINER_REPO}/{TRAINER_COMMIT}/geolip/nano_beatrix/{f}"
+        with urllib.request.urlopen(url, timeout=60) as r:
+            data = r.read()
+        tmp = os.path.join(folder, f + ".part")
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, os.path.join(folder, f))
+    return folder
 
 
 def _load_thought_pack():
     name = "thought_seeds_tpref"
     if name not in sys.modules:
         pkg = types.ModuleType(name)
-        pkg.__path__ = [TRAINER_REF]
+        pkg.__path__ = [trainer_dir()]
         sys.modules[name] = pkg
     return importlib.import_module(f"{name}.thought_pack")
 
 
 tp = _load_thought_pack()
 assert tuple(int(x) for x in tp.VERSION.split(".")) >= (0, 1, 62), f"thought_pack {tp.VERSION}: the lists changed names at 0.1.62"
-HELD = tp.seal()                                    # the seals of the 0.1.62 lists (final, Fable 2026-10-19)
+HELD = tp.seal()                                    # the sealed tenth of the 0.1.62 lists (final)
 KEYS = set(tp.keys())
 DOMAINS = tp.DOMAINS
 INTERPRETIVE = ("mood", "intent", "story")          # the generating model's systems: never in a seed

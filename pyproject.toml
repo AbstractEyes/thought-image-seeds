@@ -1,18 +1,44 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "thought-seeds"
-version = "0.0.1"
-description = "Licensed image descriptions, scene graphs, museum metadata and prompts turned into hidden picture specs (seeds) for a text-only art thought dataset."
+name = "thought-image-seeds"
+dynamic = ["version"]
+description = "Licensed image descriptions, scene graphs, museum metadata and prompts turned into hidden picture specifications (seeds) for a text-only art thought dataset."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.26", "pandas>=2.1", "pyarrow>=15", "requests>=2.31", "huggingface_hub>=0.24"]
+authors = [{ name = "AbstractPhil" }]
+keywords = ["dataset", "image descriptions", "scene graphs", "museum metadata", "prompts", "art", "photography"]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.1",
+  "pyarrow>=15",
+  "requests>=2.31",
+  "huggingface_hub>=0.24",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
 
+[project.scripts]
+thought-seeds = "thought_seeds.build:main"
+
+[project.urls]
+Homepage = "https://github.com/AbstractEyes/thought-image-seeds"
+Dataset = "https://huggingface.co/datasets/AbstractPhil/thought-symbolic-image-captions"
+
+[tool.setuptools.dynamic]
+version = { attr = "thought_seeds.__version__" }
+
 [tool.setuptools.packages.find]
 include = ["thought_seeds*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
