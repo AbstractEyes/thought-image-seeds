@@ -65,6 +65,33 @@ def test_person_words_that_name_no_person():
     assert _spec("a horse rider in a field")["person"]["role"] == "rider"           # a role keeps its person
 
 
+def test_a_guise_is_no_person():
+    for text in ("a corgi as a knight", "a cat dressed as a pirate", "a gorilla astronaut", "a frog knight", "a cat chef cooking",
+                 "a chimpanzee, dressed as wonder woman", "roses that resemble a beautiful teen girl",
+                 "surreal photography by man ray"):
+        assert "person" not in _spec(text), text
+    assert _spec("a gorilla astronaut")["thing"]["name"] == "gorilla"
+    assert _spec("a corgi as a knight")["thing"]["name"] == "corgi"
+    assert _spec("an armored granite wombat warrior statue holding a broad sword")["thing"]["name"] == "statue"
+    assert _spec("a woman dressed as a pirate")["person"] == {"count": "1", "gender": "woman"}     # one person, not two
+    assert _spec("a horse rider")["person"] == {"role": "rider"}                                     # who rides the horse
+    assert "role" not in _spec("portrait of a man, painting by dutch painter vermeer")["person"]     # the maker
+
+
+def test_a_gender_or_role_holds_for_every_person():
+    for text in ("a girl and a boy", "a man and a woman", "A boy holds and a girl paints a piece of wood.", "a father and a son",
+                 "a mother holding her baby", "a beautiful young female doctor talking with a nurse", "a mother daughter photo"):
+        p = _spec(text).get("person", {})
+        assert "gender" not in p and "role" not in p, text
+    assert _spec("a beautiful young female doctor talking with a nurse")["person"]["count"] == "2"
+    assert _spec("an elderly woman")["person"] == {"count": "1", "gender": "woman", "age": "elderly"}   # one person, two words
+    assert _spec("two female soldiers")["person"] == {"count": "2", "gender": "woman", "role": "soldier"}
+    assert _spec("a female cowboy")["person"] == {"count": "1", "gender": "woman"}          # the gender word, not the role's
+    assert _spec("a young female elven warrior")["person"] == {"gender": "woman"}
+    assert _spec("two men")["person"] == {"count": "2", "gender": "man"}
+    assert _spec("an asian female tourist with a modern tourist look")["person"]["count"] == "1"   # 'tourist look' is a style
+
+
 def test_a_relation_binds_its_own_subject_and_object():
     for text in ("beautiful woman from the back facing away from the camera", "A boy holds and a girl paints a piece of wood.",
                  "driftwood and sea agate beside a sandcastle", "a pickup truck under street lights at night",

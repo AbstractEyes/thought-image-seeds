@@ -7,8 +7,10 @@ scene ('a wall with a framed oil painting', 'a television that displays an image
 concrete noun of a fixed vocabulary (animals, vehicles, objects, buildings, food, plants), with its count, bound colour and position
 when the text gives them (a number counts the noun it stands before: never an age, a measure or a title's number, '25 year old
 man', 'six meters tall', 'metin 2'); persons come from the gender / age / role / kin words, and a person word that names no person
-of the picture is passed over (a modifier, 'baby elephant'; a chess piece; an animal's title, 'raccoon king'; what a thing is
-shaped like or a statue shows; the maker of the picture, 'a drawing by a child'); clothing, hair, expression, pose and gesture only
+of the picture is passed over (a modifier, 'baby elephant'; a chess piece; an animal's title or guise, 'raccoon king', 'frog
+knight'; a guise after 'as', 'a corgi as a knight'; what a thing is shaped like or a statue shows; the maker of the picture, 'a
+drawing by a child'); words side by side describe one person ('an elderly woman', 'a female knight'), and a gender or a role is
+kept only when it holds for every person the text names ('a girl and a boy' has none); clothing, hair, expression, pose and gesture only
 when a person is present and the word sits near the person word; relations from the trie's relation phrases between a phrase's own
 subject and the noun right after the relation word, never a negated one ('facing away from'). Titles of paintings, books, films and
 games ('American Gothic', 'Animal Farm', 'Elden Ring') give nothing. A record is set only when the words state it; nothing is guessed.
@@ -105,7 +107,8 @@ HEAD_AFTER_PERSON = {"college", "colleges", "school", "schools", "academy", "uni
                      "sticker", "mannequin", "bust", "busts", "skull", "skulls", "skeleton", "hand", "hands", "heart", "brain",
                      "foot", "feet", "arm", "arms", "leg", "legs", "finger", "fingers", "torso", "organ", "organs", "rib", "ribs",
                      "spine", "flesh", "blood", "remains", "shape", "shapes", "shaped", "suit", "armor", "armour", "helmet", "crown",
-                     "cake", "museum", "magazine", "figure", "figures", "face", "faces", "head", "heads"}
+                     "cake", "museum", "magazine", "figure", "figures", "face", "faces", "head", "heads", "vibe", "vibes",
+                     "aesthetic", "fashion", "attire", "clothes", "clothing", "gear", "uniform", "uniforms"}
 NOT_PERSON_PHRASES = {"father christmas", "father time", "mother goose", "mother nature", "mother earth", "mother ship",
                       "mother board", "mother of pearl", "king size", "queen size", "queen anne", "king cobra", "baby blue", "baby pink",
                       "baby shower", "baby powder", "baby oil", "baby food", "baby grand", "baby teeth", "boy band", "girl power",
@@ -113,17 +116,36 @@ NOT_PERSON_PHRASES = {"father christmas", "father time", "mother goose", "mother
 # a person word after one of these is no person of the picture: what a thing is shaped like, what a statue shows, who made the
 # picture ('in the shape of a man', 'a puppet that looks like a king', 'a drawing by a child')
 NOT_PERSON_PREFIX = re.compile(
-    r"(?:^|\s)(?:shape of|shaped like|form of|looks? like|looking like|resembling|resembles|statues? of|sculptures? of|"
+    r"(?:^|\s)(?:shape of|shaped like|form of|looks? like|looking like|resembl(?:e|es|ing)|statues? of|sculptures? of|"
     r"figurines? of|busts? of|carvings? of|effig(?:y|ies) of|dolls? of|puppets? of|mannequins? of|cut-?outs? of|toys? of|"
     r"costumes? of|masks? of|(?:made|drawn|painted|done|created|sketched|photographed|taken|designed|written|illustrated|"
-    r"sculpted|carved|built|crafted|art|artwork|drawing|painting|photo|photograph|sketch|work|works|picture|portrait) by)"
-    r"(?: (?:a|an|the|two|three|four|five|some|several|many|famous|old|young|little|small|tiny|giant|huge|large|big|"
-    r"professional|skilled|talented|master|great|renowned))*$")
+    r"sculpted|carved|built|crafted|rendered|art|artwork|drawing|painting|photo|photograph|photography|illustrations?|"
+    r"render|rendering|images?|film|movie|comics?|designs?|poster|cover|sketch|work|works|picture|portrait) by)"
+    r"(?: (?!(?:and|or|nor|but|of|with|in|on|at|for|from|to|while|is|are|was|were|who|that|which)\b)[a-z0-9'\-]+){0,3}$")
 GUARD_NOT_PERSON = {"closed", "open", "half", "full", "shin", "mud", "hand", "chin", "mouth", "knee", "elbow", "splash", "fender",
                     "sword", "nose", "neck", "chest", "arm", "leg", "finger", "rash", "cheek", "face", "cross", "point", "life",
                     "color", "colour", "crash", "brush", "bumper", "hilt", "blade", "stair", "bed", "wheel", "chain", "toe",
                     "shoulder", "mouthguard", "cage", "spark", "heat", "dust", "wind", "rain", "sun", "lens", "corner"}
 ROYAL_TITLES = {"king", "kings", "queen", "queens", "prince", "princes", "princess", "emperor", "empress"}
+# person words that, right after an animal word, name a person who works with the animal ('horse rider', 'chicken farmer', 'fish
+# vendor'); any other person word there is the animal's guise ('frog knight', 'gorilla astronaut', 'cat chef'): the animal, no person
+ANIMAL_AGENTS = {"rider", "riders", "jockey", "farmer", "farmers", "vendor", "vendors", "merchant", "cowboy", "cowgirl", "lady",
+                 "ladies"}
+# person words that, after an animal word, make a hybrid ('cat girl', 'wolf man'): neither the animal nor a person
+HYBRID_HEADS = {"girl", "girls", "boy", "boys", "man", "men", "woman", "women", "guy", "guys", "person", "people", "kid", "kids",
+                "child", "children", "human", "humans", "goddess", "male", "female"}
+# kin words: two of them side by side name two people ('a mother daughter photo'); any other person word right before another
+# describes the same person ('an elderly woman', 'a female knight', 'a baby girl', 'an astronaut girl', 'a warrior woman')
+KIN = {"mother", "father", "mom", "dad", "son", "sons", "daughter", "daughters", "brother", "brothers", "sister", "sisters", "husband",
+       "husbands", "wife", "wives", "grandmother", "grandfather", "grandma", "grandpa", "grandson", "grandsons", "granddaughter",
+       "granddaughters", "aunt", "uncle", "nephew", "niece", "cousin", "cousins", "boyfriend", "girlfriend", "bride", "groom"}
+# words before a person word that make it another person than the one before it ('a man and a woman', 'a mother holding her baby',
+# 'a doctor talking with a nurse')
+OTHER_PERSON_BEFORE = {"and", "&", "or", "nor", "with", "his", "her", "their", "its", "my", "our", "your", "plus", "versus", "vs",
+                       "than"}
+# words that end the look back from a person word for 'as' ('a corgi as a knight' is a guise; 'a man and a woman' is two people)
+AS_GAP_STOP = {"and", "or", "nor", "but", "with", "of", "in", "on", "at", "by", "from", "to", "for", "while", "is", "are", "was",
+               "were", "who", "that", "which"}
 VIEWPOINT_WORDS = {"at", "into", "towards", "toward", "from", "facing", "faces", "to", "for"}
 BABY_NEXT = {"in", "on", "at", "with", "and", "or", "is", "was", "are", "were", "of", "to", "from", "by", "under", "near", "next",
              "inside", "between", "behind", "beside", "who", "that", "while", "as", "for", "into", "onto", "has", "have", "sits",
@@ -276,12 +298,25 @@ def _kind(word: str) -> str:
     return NOUNS.get(word, (0, 0, ""))[2]
 
 
+def _played_as(toks: list, i: int) -> bool:
+    """Whether the person word at toks[i] comes after 'as' (a guise or a comparison, no other person: 'a corgi as a knight', 'a
+    woman dressed as a pirate', 'as tall as a man'); 'as well as' and 'such as' join people and keep them."""
+    for k in range(i - 1, max(-1, i - 5), -1):
+        w = toks[k]
+        if w == "as":
+            return toks[max(0, k - 2):k] != ["as", "well"] and (k == 0 or toks[k - 1] != "such")
+        if w in AS_GAP_STOP or w in PERSON_WORDS or _kind(w):
+            return False
+    return False
+
+
 def _is_person(toks: list, i: int, n: int, form: str) -> bool:
     """Whether the person word toks[i:i + n] names a person of the picture: not a modifier of a noun ('cowboy hats', 'baby
-    elephant', 'a human white skull', 'wizard college'; 'woman warrior' keeps the woman), not a chess piece, an animal's title
-    ('raccoon king', 'the king of all the mice'), a toy or a statue of one, not what a thing is shaped like ('in the shape of a
-    man', 'looks like a king'), not the maker of the picture ('a drawing by a child'), not 'baby' as an adjective ('baby daikon
-    radish'), not 'man' as a verb ('the old man the boat'), not a title of a name ('father christmas')."""
+    elephant', 'a human white skull', 'wizard college'; 'woman warrior' keeps the woman), not a chess piece, an animal's title or
+    guise ('raccoon king', 'frog knight', 'the king of all the mice'), a toy or a statue of one, not what a thing is shaped like
+    ('in the shape of a man', 'looks like a king'), not a guise after 'as' ('a corgi as a knight'), not the maker of the picture
+    ('a drawing by a child'), not 'baby' as an adjective ('baby daikon radish'), not 'man' as a verb ('the old man the boat'), not
+    a title of a name ('father christmas')."""
     nxt = toks[i + n] if i + n < len(toks) else ""
     nxt2 = toks[i + n + 1] if i + n + 1 < len(toks) else ""
     prev = toks[i - 1] if i > 0 else ""
@@ -291,12 +326,14 @@ def _is_person(toks: list, i: int, n: int, form: str) -> bool:
         return False
     if (nxt in HEAD_AFTER and nxt not in PERSON_WORDS) or nxt in HEAD_AFTER_PERSON:
         return False
+    if nxt == "look" and not (form.endswith("s") and not form.endswith("ss")) and form not in ("men", "women", "people", "children"):
+        return False                                      # 'a modern tourist look' ('two men look at the sea' keeps them)
     if nxt in COLOUR_WORDS and _kind(nxt2) not in ("", "place") and nxt2 not in WEAR_WORDS:
         return False                                      # 'a human white skull' ('a woman red dress' keeps the woman)
     if (form in ("man", "men") and prev in NOT_A_MAN) or prev in NOT_PERSON_BEFORE:
         return False
-    if _kind(prev) == "animal" and not PERSON_WORDS[form][2]:
-        return False                                      # 'raccoon king', 'cat girl'; a role keeps its person: 'horse rider'
+    if _kind(prev) == "animal" and form not in ANIMAL_AGENTS:
+        return False                                      # 'raccoon king', 'cat girl', 'frog knight'; 'horse rider' keeps its person
     if nxt in ("made", "nature", "earth") or (form == "nurse" and nxt == "shark") or (form == "monk" and nxt == "seal"):
         return False
     if form in ("baby", "babies") and nxt and nxt not in BABY_NEXT and nxt not in PERSON_WORDS and not re.search(r"(ing|ed)$", nxt):
@@ -307,7 +344,7 @@ def _is_person(toks: list, i: int, n: int, form: str) -> bool:
         return False
     if nxt == "of" and any(_kind(w) == "animal" for w in toks[i + n + 1:i + n + 4]):
         return False
-    if NOT_PERSON_PREFIX.search(" ".join(toks[max(0, i - 6):i])):
+    if NOT_PERSON_PREFIX.search(" ".join(toks[max(0, i - 6):i])) or _played_as(toks, i):
         return False
     return True
 
@@ -335,9 +372,12 @@ def _mentions(toks: list) -> list:
                                                     (i >= 2 and toks[i - 1] == "the" and toks[i - 2] in VIEWPOINT_WORDS)):
                     hit = (i, i + n, None, False, "modifier", None)       # 'facing the camera': the viewer, no thing
                     break
-                if kind == "animal" and nxt in ROYAL_TITLES:
-                    hit = (i, i + n, w, pl, kind, None)                     # 'the raccoon king': a raccoon, no person
-                    break
+                nxt2 = toks[i + n + 1] if i + n + 1 < len(toks) else ""
+                if kind == "animal" and (nxt in ROYAL_TITLES or (nxt in PERSON_WORDS and nxt not in ANIMAL_AGENTS and
+                                                                 nxt not in HYBRID_HEADS)) \
+                        and _kind(nxt2) in ("", "place") and nxt2 not in HEAD_AFTER_PERSON:
+                    hit = (i, i + n, w, pl, kind, None)       # 'the raccoon king', 'a gorilla astronaut': the animal, no person
+                    break                                     # ('a wombat warrior statue' is a statue)
                 if nxt in HEAD_AFTER or (nxt in NOUNS and NOUNS[nxt][2] != "place") or nxt in PERSON_WORDS:
                     hit = (i, i + n, None, False, "modifier", None)       # 'dog house', 'cat ears', 'strawberry blonde'
                     break
@@ -345,7 +385,15 @@ def _mentions(toks: list) -> list:
                 break
         if hit:
             if hit[4] != "modifier" and not NEGATION & set(toks[max(0, i - 3):i]):   # 'without any boats': not in the picture
-                out.append(hit)
+                p = out[-1] if out else None
+                said = p is not None and p[2] in maps.GENDER and hit[2] not in maps.GENDER   # 'a female cowboy', 'a woman priest'
+                if hit[4] == "person" and p and p[4] == "person" and p[1] == hit[0] and not (p[2] in KIN and hit[2] in KIN) \
+                        and (said or not (p[5][0] and hit[5][0] and p[5][0] != hit[5][0])):
+                    a, b = p[5], hit[5]                   # 'an elderly woman', 'two female soldiers': one person, its words joined;
+                    g = a[0] if said else (b[0] or a[0])  # a gender word before a role word outranks the role's usual gender
+                    out[-1] = (p[0], hit[1], hit[2], hit[3], "person", (g, a[1] or b[1], b[2] or a[2]))
+                else:
+                    out.append(hit)
             i = hit[1]
         else:
             i += 1
@@ -822,7 +870,11 @@ def spec_from_text(text: str, spec: core.Spec | None = None) -> tuple:
     # persons
     if persons:
         counts, genders, ages, roles = [], [], [], []
-        for i, m in persons:
+        others = False                                    # a person word that names another person than the one before it
+        for k, (i, m) in enumerate(persons):
+            if k and persons[k - 1][0] == i:              # 'and', 'her' between them, or two kin words side by side
+                end = persons[k - 1][1][1]
+                others = others or end == m[0] or bool(OTHER_PERSON_BEFORE & set(toks_by[i][max(end, m[0] - 3):m[0]]))
             g, a, r = m[5]
             c, _ = _lookback(toks_by[i], m[0])
             if m[3] or m[2] in ("people", "children", "men", "women", "gentlemen", "folk", "old men", "young men", "young women"):
@@ -834,13 +886,24 @@ def spec_from_text(text: str, spec: core.Spec | None = None) -> tuple:
                                            " ".join(toks_by[i][m[1]:m[1] + 2])) else None)
         if all(counts):
             s.set("person", "count", str(sum(counts)))
-        g = next((x for x in genders if x), None)
+        # a gender or a role: words that disagree give none ('a man and a woman', 'a princess girl'); for two people or more it must
+        # hold for every one of them ('a father and a son' has no gender and no role, 'a mother holding her baby' no gender); several
+        # words for one person give theirs ('a young female elven warrior'); an age goes with a single person (core.cohere)
+        several = others or (all(counts) and sum(counts) > 1)
+
+        def held_by_all(vals):
+            named = {x for x in vals if x}
+            if len(named) != 1:
+                return None
+            return (vals[0] if all(x == vals[0] for x in vals) else None) if several else named.pop()
+
+        g = held_by_all(genders)
         if g:
             s.set("person", "gender", g)
         a = next((x for x in ages if x), None)
         if a:
             s.set("person", "age", a)
-        r = next((x for x in roles if x), None)
+        r = held_by_all(roles)
         if r:
             s.set("person", "role", r)
         # look, wear, body: near a person word
