@@ -503,10 +503,39 @@ def _people_said(c) -> set:
     """How many people one caption introduces: {'plural'} when it uses a group word ('people', 'a couple', 'skiers'), else the number
     of people it introduces with 'a' / 'an' / 'one' ('a man and a woman' -> 2; up to 3), else nothing."""
     ms = [(s, c.t[s:e]) for s, e, _ in PERSON_M.iter(c.t)]
-    if any(w in PLURAL_PEOPLE for _, w in ms):
+    # a plural word right after 'a' / 'an' is a slip for the singular ('a women who is playing tennis')
+    if any(w in PLURAL_PEOPLE and not (w not in ("couple", "family", "crowd", "team") and re.search(r"\ban?\s+$", c.t[max(0, s - 4):s]))
+           for s, w in ms):
         return {"plural"}
     n = sum(1 for s, w in ms if w not in ("he", "she", "someone", "somebody") and INTRODUCED.search(c.t[max(0, s - 24):s]))
     return {str(n)} if 1 <= n <= 3 else set()
+
+
+QUANTITY = {"a dozen": "many", "dozens of": "many", "dozens": "many", "lots of": "many", "a lot of": "many", "many": "many",
+            "a herd of": "many", "a flock of": "many", "several": "several", "multiple": "several", "a few": "several",
+            "a group of": "several", "a bunch of": "several", "a pile of": "several", "a stack of": "several"}
+QUANTITY_M = _M(QUANTITY)
+ANOTHER_ONE = re.compile(r"\banother\b|\beach other\b")
+
+
+def _plural(word: str, cat: str) -> bool:
+    """The category's word in its plural form ('bananas', 'buses', 'ponies'), by the category's own synonyms."""
+    syn = set(_words(CATS[cat][1]))
+    return ((word.endswith("ies") and word[:-3] + "y" in syn) or (word.endswith("es") and word[:-2] in syn)
+            or (word.endswith("s") and word[:-1] in syn))
+
+
+def _thing_votes(caps: list, cat: str) -> list:
+    """Per caption, the counts it states for the category: a number or a quantity word within 12 characters before its word
+    ('two brown bears', 'dozens of green bananas'), or 2 when it says 'another' or 'each other' ('one bear grooming another')."""
+    votes = []
+    for c in caps:
+        sp = [(s, e) for s, e, _ in c.cats.get(cat, [])]
+        v = {num for _, ne, num in NUMBER_M.iter(c.t) + QUANTITY_M.iter(c.t) if any(0 <= ts - ne <= 12 for ts, _ in sp)}
+        if not v and sp and ANOTHER_ONE.search(c.t):
+            v = {"2"}
+        votes.append(v)
+    return votes
 
 
 def _stated_count(caps: list, spans) -> str | None:
@@ -723,8 +752,11 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
         g = groups[main]
         sp.set("thing", "name", names[main])
         n = len(g["boxes"])
-        stated = _stated_count(caps, lambda c: [(s, e) for s, e, _ in c.cats.get(main, [])])
-        sp.set("thing", "count", stated or _box_count(n, g["crowd"]))
+        tvotes = _thing_votes(caps, main)
+        count = _vote(tvotes) or _box_count(n, g["crowd"])
+        if count == "1" and sum(1 for c in caps if c.cats.get(main) and all(_plural(c.t[s:e], main) for s, e, _ in c.cats[main])) >= 2:
+            count = "several"            # one box around a bunch: 'dozens of green bananas', 'a banana tree with multiple bunches'
+        sp.set("thing", "count", count)
         allb = g["boxes"] + g.get("crowd_boxes", [])
         pos = {maps.position_of((b[0] + b[2]) / 2) for b in allb}
         if len(pos) == 1:

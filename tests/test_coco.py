@@ -120,6 +120,16 @@ def test_counts_follow_the_captions():
     ann = [(18, 200.0, 200.0, 200.0, 150.0, 0), (1, 10.0, 50.0, 40.0, 120.0, 0)]
     p = coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]
     assert p["count"] == "2" and "gender" not in p
+    # 'a women' is a slip for one woman, not a group
+    assert coco._people_said(coco._Cap("A women who is playing tennis.")) == {"1"}
+    assert coco._people_said(coco._Cap("Women playing tennis.")) == {"plural"}
+    # one box around a group: 'another', 'each other' and plural-only captions
+    ann = [(18, 200.0, 200.0, 200.0, 150.0, 0)]
+    caps = ["One brown dog chasing another.", "A dog standing in a park.", "Two brown dogs are wrestling.", "A dog playing with another dog."]
+    assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["thing"]["count"] == "2"
+    caps = ["Brown dogs lying in the sun.", "Dozens of dogs in a field.", "A dog park with dogs.", "Dogs resting."]
+    assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["thing"]["count"] == "several"
+    assert coco._plural("dogs", "dog") and not coco._plural("dog", "dog") and coco._plural("buses", "bus")
 
 
 def test_unshout_drops_all_capitals_sentences():
