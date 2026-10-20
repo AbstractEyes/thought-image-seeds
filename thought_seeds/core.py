@@ -281,6 +281,32 @@ def make_hint(parts, limit: int = HINT_MAX) -> str:
     return " ".join(out)
 
 
+ADULT_AGES = {"20s", "30s", "40s", "50s", "60s", "elderly", "young adult"}
+YOUNG_AGES = {"child", "baby", "teen"}
+COHERED: Counter = Counter()                        # cohere()'s removals by reason (the build prints them per source)
+
+
+def cohere(spec: dict) -> dict:
+    """Facts that cannot all be true of ONE picture's subject, removed (every source): an age needs exactly one person (an age of
+    'someone in the picture' says nothing of the subject: 'two men ... one of them is a kid'), and an age must fit the gender word."""
+    p = spec.get("person")
+    if not p or "age" not in p:
+        return spec
+    g, a = p.get("gender"), p["age"]
+    why = None
+    if p.get("count") != "1":
+        why = "age without exactly one person"
+    elif (g in ("boy", "girl") and a in ADULT_AGES) or (g in ("man", "woman") and a in YOUNG_AGES):
+        why = "age against the gender word"
+    if why:
+        COHERED[why] += 1
+        spec = {k: dict(v) if isinstance(v, dict) else v for k, v in spec.items()}
+        del spec["person"]["age"]
+        if not spec["person"]:
+            del spec["person"]
+    return spec
+
+
 def make_seed(dataset: str, sid: str, domain: str, genre: str, spec: Spec | dict, hint: str, license: str, url: str,
               min_records: int = 1, group: str | None = None) -> dict | None:
     """The seed object (the contract's fields), routed by the seal; None when the spec is empty or fails the checks. `group`: the
@@ -288,7 +314,7 @@ def make_seed(dataset: str, sid: str, domain: str, genre: str, spec: Spec | dict
     if domain not in DOMAINS:
         raise ValueError(f"domain {domain!r}")
     seed_id = f"{dataset}:{sid}"
-    raw = spec.spec() if isinstance(spec, Spec) else spec
+    raw = cohere(spec.spec() if isinstance(spec, Spec) else spec)
     s, held = route(seed_id, raw, group)
     if tp.n_records(s) < min_records:
         REJECTED["too few records"] += 1

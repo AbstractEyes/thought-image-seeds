@@ -57,11 +57,14 @@ def run(names, raw: str, out: str, limit: int | None = None, fetch: bool = False
             print(f"[{name}] fetched {len(got)} files, {sum(got.values()) / 2**20:.1f} MB", flush=True)
         sh = core.Shards(out, m.DATASET)
         core.REJECTED.clear()
+        core.COHERED.clear()
         for k, seed in enumerate(m.seeds(raw, limit=limit), 1):
             sh.add(seed)
             if k % 20000 == 0:
                 print(f"[{name}] {k} seeds, {time.time() - t1:.0f} s", flush=True)
         st = sh.close(dict(license=m.LICENSE, url=m.URL, taken=getattr(m, "TAKEN", ""), rejected=dict(core.REJECTED.most_common(20))))
+        if core.COHERED:
+            print(f"[{name}] facts removed as incoherent: {dict(core.COHERED)}", flush=True)
         if core.REJECTED:
             print(f"[{name}] rejected {sum(core.REJECTED.values())}: {core.REJECTED.most_common(5)}", flush=True)
         done = time.time() - t0

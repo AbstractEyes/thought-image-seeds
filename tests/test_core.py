@@ -101,3 +101,11 @@ def test_route_by_group_agrees_across_sources():
         a = core.route(f"coco:{i}", spec, group=f"coco-image:{i}")[1]
         b = core.route(f"localized_narratives:{i}", spec, group=f"coco-image:{i}")[1]
         assert a == b
+
+
+def test_cohere_keeps_an_age_only_for_one_fitting_person():
+    assert core.cohere({"person": {"age": "child"}}) == {}
+    assert core.cohere({"person": {"count": "2", "age": "child", "gender": "man"}}) == {"person": {"count": "2", "gender": "man"}}
+    assert core.cohere({"person": {"count": "1", "age": "child", "gender": "man"}}) == {"person": {"count": "1", "gender": "man"}}
+    ok = {"person": {"count": "1", "age": "child", "gender": "girl"}}
+    assert core.cohere(ok) == ok
