@@ -31,7 +31,7 @@ EXPRESSIONS = frozenset(("smile", "frown", "grin", "open mouth", "closed mouth",
                          "sweatdrop", "light smile", "evil smile", "grimace", "parted lips", "clenched teeth", "tongue out", "wide-eyed",
                          "crazy smile", "nervous smile", "seductive smile", "forced smile", "false smile", "one eye closed"))
 
-VERSION = "tools 0.1.1"
+VERSION = "tools 0.1.2"
 REPO = "AbstractPhil/thought-symbolic-image-captions"
 DEPTHS = ("simple", "medium", "deep")
 DOMAINS = ("photograph", "painting", "illustration", "sculpture", "design")
@@ -86,7 +86,7 @@ RULES = {1: "every claim is in the spec or is marked as an inference with its ev
          8: "no real person's name, no copyrighted image described from memory: the spec is invented or comes from a licensed description"}
 BANNED = ("pixel", "pixels", "the image file", "i can see", "as seen in the image", "in this photo i", "looking at the image", "the jpeg",
           "the png")
-ALLOWED_PHRASES = ("pixel art",)                 # closed-list values that hold a banned word: the medium is a medium, not a file
+ALLOWED_PHRASES = ("pixel art", "pixel-art")                 # closed-list values that hold a banned word: the medium is a medium, not a file
 _BANNED_RE = re.compile(r"\b(" + "|".join(re.escape(b) for b in BANNED) + r")\b")
 
 
@@ -286,6 +286,8 @@ LIGHT_TIME = {"hard sun": {"morning", "noon", "afternoon"}, "dappled": {"morning
 YOUNG, ADULT = {"child", "teen"}, {"young adult", "20s", "30s", "40s", "50s", "60s", "elderly"}
 AGE_OF = {"girl": YOUNG, "boy": YOUNG, "woman": ADULT, "man": ADULT}                                                       # person, nonbinary: any
 SUBJECT = {"nonbinary": "person"}                                                                                          # a relation's a end is a noun
+TIGHT = {"macro", "extreme close", "detail"}                                   # a tight frame shows no body pose and no gesture
+FULL_BODY = {"running", "jumping", "climbing", "dancing", "lying", "crouching", "kneeling", "floating", "stretching", "bowing"}   # not in a close-up or portrait
 SIZE = {**{t: 1 for t in ("umbrella", "lantern", "cat", "book", "cup", "flag", "bottle", "flower", "clock", "bird", "rope", "basket", "kite",
                            "drum", "violin", "sword", "candle", "suitcase", "camera")},
         **{t: 2 for t in ("bicycle", "window", "mirror", "dog", "chair", "table", "lamp", "door", "bench", "sign", "ladder")},
@@ -362,6 +364,11 @@ def coherent(key: str, val: str, spec: dict) -> bool:
         return need is None or time is None or time in need
     if key == "thing name":
         return in_place(val, setting)
+    if key in ("body pose", "body gesture"):
+        framing = shot.get("framing")
+        if framing in TIGHT:
+            return False
+        return framing not in ("close-up", "portrait") or val not in FULL_BODY
     return True
 
 

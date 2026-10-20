@@ -46,3 +46,17 @@ def test_drawn_specs_pass_the_coherence_filter(tmp_path):
         for spec in (it["specs"].values() if it["kind"] == "series" else [it["spec"]]):
             assert not incoherent(spec)
             assert all("nonbinary" not in (r["a"], r["b"]) for r in spec.get("relation", []))
+
+
+def test_draw_thin_specs_domains_and_seeded_depths(tmp_path):
+    from thought_seeds.rows import seed_depth, thin
+    path = draw(12, 20, 20, str(tmp_path), rng_seed=6, domains={"illustration": 1.0})
+    for line in open(path):
+        it = json.loads(line)
+        assert it["domain"] == "illustration" or (it.get("spec") or it["specs"]["deep"]).get("form", {}).get("medium")
+        if it["kind"] == "series":
+            assert not thin(it["specs"]["simple"], "simple") and not thin(it["specs"]["medium"], "medium")
+        else:
+            assert not thin(it["spec"], it["depth"])
+    rich = {"spec": {"person": {"gender": "man", "count": "1"}, "thing": {"name": "dog"}}, "hint": "x" * 250}
+    assert seed_depth(rich) == "medium" and seed_depth(dict(rich, hint="")) == "simple"

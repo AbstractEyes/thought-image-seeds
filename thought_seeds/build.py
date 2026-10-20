@@ -103,8 +103,9 @@ def main(argv=None) -> int:
         return 0
     if "draw" in args:
         from .rows import draw
+        doms = {d: float(w) for d, w in (x.split(":") for x in args["domains"].split(","))} if "domains" in args else None
         path = draw(int(args["draw"]), int(args.get("series", 10)), int(args.get("singles", 0)), args["rows-dir"],
-                    int(args["rng"]) if "rng" in args else None, args["seeds"].split(",") if "seeds" in args else None)
+                    int(args["rng"]) if "rng" in args else None, args["seeds"].split(",") if "seeds" in args else None, doms)
         print(f"specs written: {path}")
         return 0
     if "check-rows" in args:

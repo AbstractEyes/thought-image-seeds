@@ -65,6 +65,36 @@ def incoherent(spec: dict) -> list:
     return why
 
 
+def thin(spec: dict, depth: str) -> bool:
+    """A drawn spec too thin for its depth: a simple spec of one record (nothing to observe beyond a word), a medium spec with no shot
+    or form record (the medium row speaks of the form)."""
+    if depth == "simple":
+        return tp.n_records(spec) < 2
+    if depth == "medium":
+        return not (spec.get("shot") or spec.get("form"))
+    return False
+
+
+COCO_FAMILY = ("coco", "localized_narratives")
+
+
+def picture_of(seed: dict) -> str:
+    """The picture a seed describes: COCO captions and Localized Narratives share the COCO image ids."""
+    ds = seed["source"]["dataset"]
+    return f"coco-image:{seed['source']['id']}" if ds in COCO_FAMILY else seed["seed_id"]
+
+
+def seed_depth(seed: dict) -> str:
+    """The depth a seed can carry, by its records and its hint (the writer may add facts the hint states plainly; mood, intent and
+    story add their records): deep from 10 records and a 300-byte hint; medium from 5 records, or 3 with a 200-byte hint."""
+    n, h = tp.n_records(seed["spec"]), len(seed.get("hint", ""))
+    if n >= 10 and h >= 300:
+        return "deep"
+    if n >= 5 or (n >= 3 and h >= 200):
+        return "medium"
+    return "simple"
+
+
 def _tidy(spec: dict) -> dict:
     """A relation end that is the bare word 'nonbinary' becomes 'person' (the gender word names the subject; 'nonbinary' is not a noun)."""
     for r in spec.get("relation", []) or []:
@@ -91,7 +121,8 @@ def row_license(seed: dict | None) -> str:
     return PERMISSIVE_ROW
 
 
-def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int | None = None, seeds=None) -> str:
+def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int | None = None, seeds=None,
+         domains: dict | None = None) -> str:
     """Writes <rows_dir>/batch_BBB.specs.jsonl: n_series series of three nested specs and n_singles single specs (depth by the pilot
     mix). With `seeds` (seed files), every spec is a real seed's spec (a single row at the depth its record count fits, or the deep
     rank of a series whose medium and simple ranks are cut from it by the writer); without, specs are drawn by the tools'
@@ -100,48 +131,62 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
     assert 0 < batch < 1000 and 0 <= n_series < 100 and n_series * 3 + n_singles < 1000
     rng = np.random.default_rng(rng_seed if rng_seed is not None else 2026 * 1000 + batch)
     lists = tp.lists_for(HELD, "train")
-    pool = None
+    mix = tuple((d, float(w)) for d, w in (domains or {}).items()) or DRAWN_DOMAINS
+    tot = sum(w for _, w in mix)
+    mix = tuple((d, w / tot) for d, w in mix)
+    pool, used = None, set()
     if seeds:
-        pool = [s for s in read_seeds(seeds, held=False)]
+        pool = [s for s in read_seeds(seeds, held=False) if tp.n_records(s["spec"]) >= 2]
         rng.shuffle(pool)
+
+    def take(pred=lambda s: True):
+        """The next seed of the pool that passes `pred` and whose picture is not in the batch yet (COCO captions and Localized
+        Narratives describe the same pictures)."""
+        for i in range(len(pool) - 1, -1, -1):
+            s = pool[i]
+            g = picture_of(s)
+            if g not in used and pred(s):
+                used.add(g)
+                return pool.pop(i)
+        raise ValueError("the seed pool ran out")
+
     out, k = [], 0
     for j in range(n_series):
         sid = f"s-{batch:03d}{j:02d}"
         if pool:
-            seed = pool.pop()
+            seed = take(lambda s: seed_depth(s) == "deep")
             specs = {"deep": seed["spec"]}
             item = dict(kind="series", series=sid, ids=[f"art-{batch:03d}{k + i:03d}" for i in range(3)], domain=seed["domain"],
                         genre=seed["genre"], specs=specs, seed_id=seed["seed_id"], hint=seed.get("hint", ""),
                         license=row_license(seed), note="the deep spec is the seed: keep every record; cut the medium and simple "
                                                          "specs from it as subsets")
         else:
-            for _ in range(200):
+            for _ in range(400):
                 specs = tp.sample_series(rng, lists)
-                if not incoherent(specs["deep"]):
+                if not incoherent(specs["deep"]) and not thin(specs["simple"], "simple") and not thin(specs["medium"], "medium"):
                     break
             specs = {d: _tidy(s) for d, s in specs.items()}
             item = dict(kind="series", series=sid, ids=[f"art-{batch:03d}{k + i:03d}" for i in range(3)],
-                        domain=domain_for(specs["deep"], rng), genre=None, specs=specs, seed_id=None, license=PERMISSIVE_ROW)
+                        domain=domain_for(specs["deep"], rng, mix), genre=None, specs=specs, seed_id=None, license=PERMISSIVE_ROW)
         k += 3
         out.append(item)
     names, p = zip(*PILOT_DEPTHS)
     for j in range(n_singles):
         depth = str(rng.choice(names, p=p))
         if pool:
-            seed = pool.pop()
-            n = tp.n_records(seed["spec"])
-            depth = "simple" if n <= 4 else "medium" if n <= 14 else "deep"
+            seed = take()
+            depth = seed_depth(seed)
             item = dict(kind="single", series=f"s-{batch:03d}{n_series + j:02d}" if n_series + j < 100 else None,
                         ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=seed["domain"], genre=seed["genre"], spec=seed["spec"],
                         seed_id=seed["seed_id"], hint=seed.get("hint", ""), license=row_license(seed))
         else:
-            for _ in range(200):
+            for _ in range(400):
                 spec = tp.sample_spec(rng, depth, lists)
-                if not incoherent(spec):
+                if not incoherent(spec) and not thin(spec, depth):
                     break
             spec = _tidy(spec)
             item = dict(kind="single", series=f"s-{batch:03d}{n_series + j:02d}" if n_series + j < 100 else None,
-                        ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=domain_for(spec, rng), genre=None, spec=spec,
+                        ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=domain_for(spec, rng, mix), genre=None, spec=spec,
                         seed_id=None, license=PERMISSIVE_ROW)
         k += 1
         out.append(item)
