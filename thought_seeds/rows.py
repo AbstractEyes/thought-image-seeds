@@ -122,7 +122,7 @@ def row_license(seed: dict | None) -> str:
 
 
 def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int | None = None, seeds=None,
-         domains: dict | None = None) -> str:
+         domains: dict | None = None, seed_series: bool = False) -> str:
     """Writes <rows_dir>/batch_BBB.specs.jsonl: n_series series of three nested specs and n_singles single specs (depth by the pilot
     mix). With `seeds` (seed files), every spec is a real seed's spec (a single row at the depth its record count fits, or the deep
     rank of a series whose medium and simple ranks are cut from it by the writer); without, specs are drawn by the tools'
@@ -153,7 +153,7 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
     out, k = [], 0
     for j in range(n_series):
         sid = f"s-{batch:03d}{j:02d}"
-        if pool:
+        if pool and seed_series:                                  # seeded series need deep-capable seeds; else drawn
             seed = take(lambda s: seed_depth(s) == "deep")
             specs = {"deep": seed["spec"]}
             item = dict(kind="series", series=sid, ids=[f"art-{batch:03d}{k + i:03d}" for i in range(3)], domain=seed["domain"],
