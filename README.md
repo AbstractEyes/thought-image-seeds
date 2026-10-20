@@ -79,6 +79,7 @@ and the same held-out values. `THOUGHT_TOOLS` may name another copy of the file.
 thought_seeds/
   core.py      the seed contract: value cleaning, the byte budget, closed lists, the held-out routing, hints, the real-name filter, shards
   maps.py      source words to the closed values (colours, settings, poses, media, styles, relations, ...)
+  textspec.py  the prompt-text parser the prompt and label sources share (parti, diffusiondb, wikidata)
   build.py     the runner and the attribution files (the `thought-seeds` command)
   io.py        reading seed files
   hub.py       listing and downloading the published seeds
