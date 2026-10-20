@@ -51,6 +51,10 @@ def test_drawn_specs_pass_the_coherence_filter(tmp_path):
     assert incoherent({"shot": {"light": "golden"}, "scene": {"setting": "subway"}})
     assert incoherent({"form": {"compose": "horizon high"}, "scene": {"setting": "subway"}})
     assert incoherent({"relation": [{"a": "book", "rel": "inside", "b": "window"}]})
+    assert incoherent({"relation": [{"a": "man", "rel": "holding", "b": "cup"}, {"a": "cup", "rel": "inside", "b": "suitcase"}]})
+    assert incoherent({"shot": {"light": "high key"}, "scene": {"time": "blue hour"}})
+    assert incoherent({"scene": {"weather": "heat shimmer", "time": "late evening"}})
+    assert incoherent({"shot": {"light": "silhouette"}, "relation": [{"a": "hat", "rel": "same colour as", "b": "door"}]})
     from thought_seeds.rows import tighten
     series = {"medium": {"shot": {"framing": "macro"}, "look": {"hair": "afro", "expression": "blush"},
                          "relation": [{"a": "boy", "rel": "holding", "b": "cup"}]},

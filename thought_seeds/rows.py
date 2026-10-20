@@ -43,6 +43,7 @@ NO_SKY = {"subway", "cave"}                   # no sun, moon or horizon reaches 
 STREET_LIT = {"market street", "alley", "bridge", "bus stop", "harbour", "pier", "rooftop", "courtyard", "night market", "skate park"}
 SKY_LIGHTS = {"hard sun", "golden", "dappled", "moonlight"}
 FLAT_THINGS = {"window", "mirror", "painting", "poster", "flag", "map", "sign"}     # nothing is 'inside' them
+DARK_HOURS = {"blue hour", "night", "midnight", "late evening"}
 PERSON_DETAILS = (("look", "hair"), ("look", "expression"), ("look", "eyes"), ("wear", "clothing"), ("wear", "colour"),
                   ("wear", "accessory"))
 TIGHT_DETAILS = {"extreme close": 3, "macro": 1, "detail": 1}      # an extreme close of a face shows hair, expression and eyes
@@ -106,6 +107,17 @@ def incoherent(spec: dict) -> list:
     for r in rels:
         if r.get("rel") == "inside" and r.get("b") in FLAT_THINGS:
             why.append(f"{r.get('a')} inside a {r['b']}")
+    held = {r.get("b") for r in rels if r.get("rel") == "holding"}
+    for r in rels:
+        if r.get("a") in held and r.get("rel") in ("inside", "on", "under"):
+            why.append(f"{r['a']} held and {r['rel']} a {r.get('b')}")              # a held cup is not also in a suitcase
+    tm, wx = sc.get("time"), sc.get("weather")
+    if light == "high key" and (tm in DARK_HOURS or wx in ("storm", "rain", "fog", "sleet")):
+        why.append(f"high key light at {tm or wx}")
+    if wx == "heat shimmer" and tm in DARK_HOURS | {"dusk", "dawn"}:
+        why.append(f"heat shimmer at {tm}")
+    if light == "silhouette" and any(r.get("rel") == "same colour as" for r in rels):
+        why.append("a colour relation under a silhouette")
     if spec.get("form", {}).get("medium") in NOT_DRAWN_MEDIA:
         why.append(f"medium {spec['form']['medium']}")
     return why

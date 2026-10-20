@@ -113,6 +113,7 @@ PLURAL_PERSON = {"men", "women", "people", "persons", "boys", "girls", "children
                  "athletes", "tourists", "friends", "spectators", "fans", "passengers", "pedestrians", "vendors", "farmers",
                  "musicians", "dancers", "businessmen", "individuals", "couple", "family", "crowd", "team"}
 PRONOUNS = {"he", "she", "someone", "somebody"}
+ANOTHER = re.compile(r"\banother\s+(?:[a-z]+\s+)?$")
 HE = re.compile(r"\b(?:he|him|his|himself)\b")
 SHE = re.compile(r"\b(?:she|her|hers|herself)\b")
 COUNT_WORDS = {"two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
@@ -326,6 +327,8 @@ def facts(text: str, may_hold: bool) -> dict:
             elif SINGLE.search(pre) and t[s:e] not in PLURAL_OBJ:
                 nums.append("1")
                 later_a = later_a or k > 0
+            elif ANOTHER.search(pre):
+                later_a = True                            # 'another airplane': one more than the first
         plural_seen = any(t[s:e] in PLURAL_OBJ for s, e, _ in spans)
         # 'a car ... a car', or 'this table ... a table with trophies': two of them, each said of once
         twice = nums.count("1") > 1 or later_a

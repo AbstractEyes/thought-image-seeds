@@ -79,6 +79,8 @@ def test_animal_kin_and_a_second_thing():
     assert ("person", "count") in f                                           # 'her baby': the people stay people
     f = ln.facts("A man is leaning on this table. On the table there are glasses. At the left there is a table with trophies.", False)
     assert f.get(("thing", "name")) == "table" and ("thing", "count") not in f   # 'this table ... a table': two tables
+    f = ln.facts("In the center there is an airplane. In the background there is another airplane and a building.", False)
+    assert f.get(("thing", "name")) == "airplane" and ("thing", "count") not in f
 
 
 def test_module_contract():

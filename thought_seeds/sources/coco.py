@@ -666,7 +666,13 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
         said = _vote(votes)
         more = {v for s in votes for v in s if v == "plural" or (said and said != "plural" and int(v) > int(said))}
         said = said if said and said != "plural" and not more else None     # any caption with more people: the boxes decide
-        sp.set("person", "count", stated or said or _box_count(n_people, P["crowd"]))
+        count = stated or said or _box_count(n_people, P["crowd"])
+        if count == "1" and any(v == "plural" or int(v) > 1 for s in votes for v in s):
+            # one box, but the captions see more people ('a couple', 'a man and a woman'): the captions' most named number
+            nums = Counter(v for s in votes for v in s if v != "plural" and int(v) > 1)
+            top = nums.most_common(2)
+            count = top[0][0] if top and (len(top) == 1 or top[0][1] > top[1][1]) else "several"
+        sp.set("person", "count", count)
         gvotes = _person_votes(caps, GENDER, bound=False, skip_animal_words=True)
         gender = _vote(gvotes)
         if gender and sp.d.get("person", {}).get("count") != "1" and not _all_of(caps, gvotes, gender):

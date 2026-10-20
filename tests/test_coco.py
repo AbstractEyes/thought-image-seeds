@@ -114,6 +114,12 @@ def test_counts_follow_the_captions():
     assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]["count"] == "1"
     caps = ["People walking a brown dog.", "A man with his dog on a street.", "Pedestrians and a dog.", "A dog with people."]
     assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]["count"] == "several"
+    # one person box, captions of a couple: the captions' number, and no single gender for the pair
+    caps = ["A couple standing next to a dog.", "A man and a woman with a dog.", "A couple with their dog.",
+            "A girl and a man by a dog."]
+    ann = [(18, 200.0, 200.0, 200.0, 150.0, 0), (1, 10.0, 50.0, 40.0, 120.0, 0)]
+    p = coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]
+    assert p["count"] == "2" and "gender" not in p
 
 
 def test_unshout_drops_all_capitals_sentences():
