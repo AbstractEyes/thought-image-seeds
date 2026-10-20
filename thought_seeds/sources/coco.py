@@ -258,10 +258,27 @@ SCRUB = [(re.compile(p), r) for p, r in (
     (r"\b(?:chicken|turkey|duck) breasts?\b", "meat"), (r"\b(?:cake|pancake|waffle|cookie) batter\b", "dough"),
     (r"\b(?:water|beer|milk|glass) pitchers?\b", "jug"), (r"\bwalking sticks?\b", "cane"), (r"\brunning (?:shoes|water)\b", "item"),
     (r"\bsitting (?:room|area)\b", "lounge"), (r"\bsleeping bags?\b", "bedroll"), (r"\bwatch(?:es|ing)? tower\b", "tower"),
-    (r"\bstreet ?lights?\b", "street lamp"), (r"\bflat ?screen\b", "flatscreen"))]
+    (r"\bstreet ?lights?\b", "street lamp"), (r"\bflat ?screen\b", "flatscreen"),
+    # a material, not a place: 'a wall which is made of woods'
+    (r"\b(made (?:up )?of|made from|built (?:of|from))\s+woods?\b", r"\1 timber"),
+    # the words read off a sign or a label are not the picture: 'a shed that says fire hydrant and hose' (quoted text, or up to the
+    # clause's end)
+    (r"\b(says|saying|(?:that|which) reads|labeled|labelled|marked|written|printed)\s+"
+     r"(?!(?:and|as|on|in|at|next|beside|near|with|under|above|behind|by)\b)"            # 'written on it', 'written and ...': no words read
+     r"(?:\"[^\"]*\"|'[^']*'|[^.,;!?]*?(?=\s+(?:and\s+)?(?:there|on|in|at|next|beside|near|with|under|above|behind|by)\b"
+     r"|\s+and\s+(?:a|an|the)\b|[.,;!?]|$))", r"\1"),
+    # people that are figures, not people: 'a bride and groom cake topper', 'a plastic bride and groom', 'soldier figurines'
+    (r"\b(?:(?:plastic|toy|ceramic|porcelain|wooden|stone|paper|cardboard|metal|stuffed|inflatable|lego|miniature|tiny)\s+)?"
+     r"(?:bride and groom|man and woman|bride|groom|couple|man|woman|men|women|boy|girl|boys|girls|soldier|soldiers|santa|people|"
+     r"person|persons)\s+(?:cake\s+)?(topper|toppers|figurines?|figures?|statues?|statuettes?|dolls?|ornaments?|cutouts?|mannequins?)\b",
+     r"\1"),
+    (r"\b(?:plastic|toy|ceramic|porcelain|stuffed|inflatable|lego|miniature)\s+(?:bride and groom|man and woman|bride|groom|"
+     r"couple|man|woman|men|women|boy|girl|soldiers?|people|person)\b", "figurine"))]
 ANIMAL_CTX = re.compile(r"(?<![a-z0-9'])(" + "|".join(re.escape(w) for w in sorted(ANIMAL_WORDS, key=len, reverse=True)) + r")(?![a-z0-9'])")
 # words that name a person's kin, age or sex but name an animal's as often ('a baby elephant', 'the mother giraffe')
 ANIMAL_SHARED = {"baby", "babies", "infant", "mother", "mom", "father", "dad", "male", "female"}
+ANIMAL_NEXT = re.compile(r"\s+(?:[a-z]+\s+)?(?:" + "|".join(re.escape(w) for w in sorted(ANIMAL_WORDS, key=len, reverse=True))
+                         + r"|calf|calves|cub|cubs|foal|foals|lamb|lambs|puppy|puppies|kitten|kittens|chick|chicks)(?![a-z0-9'])")
 BASEBALL = re.compile(r"base ?ball|\bbat\b|\bpitch|\bswing|home plate|umpire|catcher|\bmound\b")
 NOT_BASEBALL = [(re.compile(r"\bbatters?\b"), "dough"), (re.compile(r"\bpitchers?\b"), "jug")]   # cake batter, a water pitcher
 
@@ -373,7 +390,7 @@ NUMBER = {"two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven
           "a pair of": "2", "a couple of": "2", "2": "2", "3": "3", "4": "4", "5": "5"}
 RELATE = {"holding": "holding", "holds": "holding", "looking at": "looking at", "looks at": "looking at", "watching": "looking at",
           "watches": "looking at", "staring at": "looking at"}       # no 'carrying': 'carrying bananas on her head' is not holding
-PART_WORDS = {"door", "doors", "box", "boxes", "handle", "handles", "lid", "leash", "case", "cover", "stand", "rack", "cord",
+PART_WORDS = {"door", "doors", "box", "boxes", "handle", "handles", "lid", "leash", "case", "cover", "stand", "rack", "cord", "hose", "hoses",
               "seat", "carton", "wrapper", "crust", "string", "strings", "tail", "sail", "mast", "wheel", "wheels", "screen",
               "window", "light", "lights", "frame", "shelf", "station", "bag", "bags", "sign", "pole", "holder", "cage", "pen",
               "stall", "cart", "track", "tracks", "dish", "bowl", "plate", "basket", "costume", "food", "toy", "toys"}
@@ -499,14 +516,71 @@ PLURAL_PEOPLE = frozenset(w for w in PERSON_WORDS if w.endswith("s") and w not i
 INTRODUCED = re.compile(r"\b(?:a|an|one)\s+(?:[a-z]+\s+){0,2}$")
 
 
+def _person_spans(c) -> list:
+    """The person words of a caption as [(start, end)], without the kin words that tell of an animal ('a baby cow', 'the mother
+    giraffe')."""
+    return [(s, e) for s, e, _ in PERSON_M.iter(c.t) if not (c.t[s:e] in ANIMAL_SHARED and ANIMAL_NEXT.match(c.t, e))]
+
+
 def _people_said(c) -> set:
     """How many people one caption introduces: {'plural'} when it uses a group word ('people', 'a couple', 'skiers'), else the number
     of people it introduces with 'a' / 'an' / 'one' ('a man and a woman' -> 2; up to 3), else nothing."""
-    ms = [(s, c.t[s:e]) for s, e, _ in PERSON_M.iter(c.t)]
-    if any(w in PLURAL_PEOPLE for _, w in ms):
+    ms = [(s, c.t[s:e]) for s, e in _person_spans(c)]
+    # a plural word right after 'a' / 'an' is a slip for the singular ('a women who is playing tennis')
+    if any(w in PLURAL_PEOPLE and not (w not in ("couple", "family", "crowd", "team") and re.search(r"\ban?\s+$", c.t[max(0, s - 4):s]))
+           for s, w in ms):
         return {"plural"}
-    n = sum(1 for s, w in ms if w not in ("he", "she", "someone", "somebody") and INTRODUCED.search(c.t[max(0, s - 24):s]))
+    # two person words in a row are one person ('a baby girl', 'a women surfer'): only the first is counted
+    ends = {e for _, e in _person_spans(c)}
+    n = sum(1 for s, w in ms if w not in ("he", "she", "someone", "somebody") and INTRODUCED.search(c.t[max(0, s - 24):s])
+            and not any(c.t[e:s].strip() == "" for e in ends if e <= s))
     return {str(n)} if 1 <= n <= 3 else set()
+
+
+QUANTITY = {"a dozen": "many", "dozens of": "many", "dozens": "many", "lots of": "many", "a lot of": "many", "many": "many",
+            "a herd of": "many", "a flock of": "many", "several": "several", "multiple": "several", "a few": "several",
+            "a group of": "several", "a bunch of": "several", "a pile of": "several", "a stack of": "several"}
+QUANTITY_M = _M(QUANTITY)
+ANOTHER_ONE = re.compile(r"\banother\b|\beach other\b")
+
+
+def _plural(word: str, cat: str) -> bool:
+    """The category's word in its plural form ('bananas', 'buses', 'ponies'), by the category's own synonyms."""
+    syn = set(_words(CATS[cat][1]))
+    return ((word.endswith("ies") and word[:-3] + "y" in syn) or (word.endswith("es") and word[:-2] in syn)
+            or (word.endswith("s") and word[:-1] in syn))
+
+
+def _said_one(caps: list, cat: str) -> bool:
+    """Every caption that names the category says one of it ('a parking meter', 'an orange dog'), never its plural, and two
+    captions or more do so."""
+    ones = 0
+    for c in caps:
+        spans = c.cats.get(cat, [])
+        if not spans:
+            continue
+        if any(_plural(c.t[s:e], cat) for s, e, _ in spans):
+            return False
+        if any(INTRODUCED.search(c.t[max(0, s - 24):s]) for s, e, _ in spans):
+            ones += 1
+    return ones >= 2
+
+
+PAIR_NOUNS = {"scissors", "skis"}          # one object named as a pair: 'a pair of scissors' is one pair, not two
+
+
+def _thing_votes(caps: list, cat: str) -> list:
+    """Per caption, the counts it states for the category: a number or a quantity word within 12 characters before its word
+    ('two brown bears', 'dozens of green bananas'), or 2 when it says 'another' or 'each other' ('one bear grooming another')."""
+    votes = []
+    for c in caps:
+        sp = [(s, e) for s, e, _ in c.cats.get(cat, [])]
+        v = {num for ns, ne, num in NUMBER_M.iter(c.t) + QUANTITY_M.iter(c.t) if any(0 <= ts - ne <= 12 for ts, _ in sp)
+             and not (cat in PAIR_NOUNS and c.t[ns:ne] == "a pair of")}
+        if not v and sp and ANOTHER_ONE.search(c.t):
+            v = {"2"}
+        votes.append(v)
+    return votes
 
 
 def _stated_count(caps: list, spans) -> str | None:
@@ -657,16 +731,25 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
     n_people = len(P["boxes"]) if P else 0
     # boxes alone are not enough: people in the far background, on posters or on screens are boxed too; the captions must speak of
     # people (two of them at least) before the picture has a person subject
-    spoken = sum(1 for c in caps if PERSON_M.iter(c.t))
+    spoken = sum(1 for c in caps if _person_spans(c))
     has_people = bool(P) and (n_people > 0 or P["crowd"]) and spoken >= 2
     gender = None
     if has_people:
-        stated = _stated_count(caps, lambda c: [(s, e) for s, e, _ in PERSON_M.iter(c.t)])
+        stated = _stated_count(caps, _person_spans)
         votes = [_people_said(c) for c in caps]
         said = _vote(votes)
         more = {v for s in votes for v in s if v == "plural" or (said and said != "plural" and int(v) > int(said))}
         said = said if said and said != "plural" and not more else None     # any caption with more people: the boxes decide
-        sp.set("person", "count", stated or said or _box_count(n_people, P["crowd"]))
+        count = stated or said or _box_count(n_people, P["crowd"])
+        ones = sum(1 for s in votes if s == {"1"})
+        bigs = sum(1 for s in votes if any(v == "plural" or int(v) > 1 for v in s))
+        if count == "1" and bigs and not (ones >= 2 and ones > bigs):
+            # one box, but the captions see more people ('a couple', 'a man and a woman'): the captions' most named number; one
+            # box and most captions introducing one person ('the women eats a donut' beside four 'a woman'): one
+            nums = Counter(v for s in votes for v in s if v != "plural" and int(v) > 1)
+            top = nums.most_common(2)
+            count = top[0][0] if top and (len(top) == 1 or top[0][1] > top[1][1]) else "several"
+        sp.set("person", "count", count)
         gvotes = _person_votes(caps, GENDER, bound=False, skip_animal_words=True)
         gender = _vote(gvotes)
         if gender and sp.d.get("person", {}).get("count") != "1" and not _all_of(caps, gvotes, gender):
@@ -717,8 +800,14 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
         g = groups[main]
         sp.set("thing", "name", names[main])
         n = len(g["boxes"])
-        stated = _stated_count(caps, lambda c: [(s, e) for s, e, _ in c.cats.get(main, [])])
-        sp.set("thing", "count", stated or _box_count(n, g["crowd"]))
+        tvotes = _thing_votes(caps, main)
+        count = _vote(tvotes) or _box_count(n, g["crowd"])
+        if count == "1" and sum(1 for c in caps if c.cats.get(main) and all(_plural(c.t[s:e], main) for s, e, _ in c.cats[main])) >= 2:
+            count = "several"            # one box around a bunch: 'dozens of green bananas', 'a banana tree with multiple bunches'
+        elif count != "1" and not any(tvotes) and _said_one(caps, main):
+            count = None                 # every caption says 'a dog', the boxes say two (a second dog, a toy, a dog on a screen): unknown
+        if count:
+            sp.set("thing", "count", count)
         allb = g["boxes"] + g.get("crowd_boxes", [])
         pos = {maps.position_of((b[0] + b[2]) / 2) for b in allb}
         if len(pos) == 1:
@@ -793,12 +882,15 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
         if v:
             sp.set("scene", key, v)
     n_anns = sum(len(g["boxes"]) + len(g.get("crowd_boxes", [])) for g in groups.values())
+    # the layout agrees with the counts the spec states (the captions can see more people than the boxes, or fewer)
+    pc, tc = sp.d.get("person", {}).get("count"), sp.d.get("thing", {}).get("count")
+    subjects = (int(pc) if pc and pc.isdigit() else 0 if pc is None else 99) + (int(tc) if tc and tc.isdigit() else 0 if tc is None else 99)
     layout = None
-    if P and (P["crowd"] or n_people >= 10):
+    if P and (P["crowd"] or n_people >= 10) and pc in ("many", "several", None):
         layout = "crowd"
-    elif n_anns == 1 and sum(g["area"] for g in groups.values()) >= 0.15:
+    elif n_anns == 1 and sum(g["area"] for g in groups.values()) >= 0.15 and subjects == 1:
         layout = "single subject"
-    elif n_anns == 2 and len(groups) == 1:
+    elif n_anns == 2 and len(groups) == 1 and subjects == 2:
         layout = "pair"
     elif not has_people and _vote([{"empty"} if re.search(r"\bempty (?:street|road|room|kitchen|bathroom|bedroom|field|beach|"
                                                            r"office|park|lot|parking lot|station|platform|restaurant)\b", c.t)

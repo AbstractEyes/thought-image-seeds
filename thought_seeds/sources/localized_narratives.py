@@ -90,8 +90,9 @@ OBJ = {}
 for _cat, (_name, _ws) in C.CATS.items():
     for _w in C._words(_ws):
         if _w in ("bike", "bikes", "skiing", "snowboarding", "skateboarding", "surfing", "plant", "plants", "screen", "screens",
-                  "glove", "gloves", "bat", "bats", "meter", "meters", "sub", "lab", "labs", "calf"):
-            continue                  # a bike is a bicycle or a motorcycle; 'plants' outdoors are not potted plants; the rest name acts
+                  "glove", "gloves", "bat", "bats", "meter", "meters", "sub", "lab", "labs", "calf", "trolley", "trolleys"):
+            continue                  # a bike is a bicycle or a motorcycle; 'plants' outdoors are not potted plants; a narrated
+                                      # 'trolley' is a kitchen or a luggage cart as often as a tram; the rest name acts
         OBJ[_w] = (_name if _cat != "tv" else ("monitor" if _w.startswith("monitor") else "television"), _cat)
 OBJ.update({"cycle": ("bicycle", "bicycle"), "cycles": ("bicycle", "bicycle"), "motor bike": ("motorcycle", "motorcycle"),
             "motorbikes": ("motorcycle", "motorcycle"), "mobile": ("phone", "cell phone"), "mobiles": ("phone", "cell phone"),
@@ -113,6 +114,11 @@ PLURAL_PERSON = {"men", "women", "people", "persons", "boys", "girls", "children
                  "athletes", "tourists", "friends", "spectators", "fans", "passengers", "pedestrians", "vendors", "farmers",
                  "musicians", "dancers", "businessmen", "individuals", "couple", "family", "crowd", "team"}
 PRONOUNS = {"he", "she", "someone", "somebody"}
+ANOTHER = re.compile(r"\banother\s+(?:[a-z]+\s+)?$")
+WRITTEN = re.compile(r"(\b(?:written|printed|painted|mentioned|displayed)\b(?:\s+on\s+(?:it|them|this|that|the\s+[a-z]+))?)"
+                     r"\s+(?:as|like|that|saying|which says|which reads)\s+"
+                     r"(?:''[^']*''|\"[^\"]*\"|'[^']*'"                         # the quoted words only
+                     r"|[^.!?,]*?(?=\s+and\s+(?:there|we|i|you|it|in|on|at|this|the|a|an)\b|[,.!?]|$))", re.I)
 HE = re.compile(r"\b(?:he|him|his|himself)\b")
 SHE = re.compile(r"\b(?:she|her|hers|herself)\b")
 COUNT_WORDS = {"two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
@@ -229,9 +235,21 @@ def _end_name(x: _Text, s: int, e: int, kind):
     return kind[1][0]
 
 
+def unwritten(text: str) -> str:
+    """The narration without the words it reads off a sign or a label: 'some text written as ... please pay, cyclist' says nothing
+    of a cyclist in the picture. The read words end at their closing quote, or else at the clause's end ('and there is a boy ...'
+    stays); 'there is text written on it' alone stays."""
+    return WRITTEN.sub(r"\1", text)
+
+
 def facts(text: str, may_hold: bool) -> dict:
     """The records one narration gives: {(system, attr): value} and 'relation': [(a, rel, b)], each where the text is unambiguous."""
-    x = _Text(text)
+    whole = core.ascii_text(text).lower()
+    for p, r in C.SCRUB:
+        whole = p.sub(r, whole)
+    if C.EXPLICIT.search(whole):
+        return {"explicit": True}                         # the explicit check reads the whole narration, the sign's words too
+    x = _Text(unwritten(text))
     f = {}
     if C.EXPLICIT.search(x.t):
         return {"explicit": True}
@@ -326,6 +344,8 @@ def facts(text: str, may_hold: bool) -> dict:
             elif SINGLE.search(pre) and t[s:e] not in PLURAL_OBJ:
                 nums.append("1")
                 later_a = later_a or k > 0
+            elif ANOTHER.search(pre):
+                later_a = True                            # 'another airplane': one more than the first
         plural_seen = any(t[s:e] in PLURAL_OBJ for s, e, _ in spans)
         # 'a car ... a car', or 'this table ... a table with trophies': two of them, each said of once
         twice = nums.count("1") > 1 or later_a
@@ -497,7 +517,7 @@ def build(image_id, narrations: list) -> dict | None:
             if v:
                 chosen[k] = v
         rv = Counter(r for f in fs for r in set(f.get("relation", [])))
-        rels = [r for r, n in rv.most_common() if n >= 2]
+        rels = [r for r, n in sorted(rv.items(), key=lambda x: (-x[1], x[0])) if n >= 2]     # ties in a fixed order, every run
     thing_keys = [k for k in chosen if k[0] == "thing"]
     if thing_keys and ("thing", "name") not in chosen:
         for k in thing_keys:
@@ -508,7 +528,10 @@ def build(image_id, narrations: list) -> dict | None:
         sp.relate(a, rel, b)
     name = chosen.get(("thing", "name"))
     cat = next((f["_cat"] for f in fs if name and f.get(("thing", "name")) == name and f.get("_cat")), "")
-    longest = max(narrations, key=len)
+    # the hint is the longest narration among those that contradict the chosen facts least (two annotators say surfboard, the
+    # longest says skateboard: that one is not the hint)
+    clash = [sum(1 for k, v in chosen.items() if k in f and f[k] != v) for f in fs]
+    longest = max((n for n, c in zip(narrations, clash) if c == min(clash)), key=len)
     hint = core.make_hint(_sentences(core.drop_named(C.unshout(plain_narration(longest)))))
     genre = _genre(sp.spec(), cat, any(f.get("_food") for f in fs))
     seed = core.make_seed(DATASET, sid, "photograph", genre, sp, hint, LICENSE, EXPLORE.format(sid), group=f"coco-image:{sid}")

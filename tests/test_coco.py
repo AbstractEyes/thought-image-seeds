@@ -114,6 +114,67 @@ def test_counts_follow_the_captions():
     assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]["count"] == "1"
     caps = ["People walking a brown dog.", "A man with his dog on a street.", "Pedestrians and a dog.", "A dog with people."]
     assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]["count"] == "several"
+    # one person box, captions of a couple: the captions' number, and no single gender for the pair
+    caps = ["A couple standing next to a dog.", "A man and a woman with a dog.", "A couple with their dog.",
+            "A girl and a man by a dog."]
+    ann = [(18, 200.0, 200.0, 200.0, 150.0, 0), (1, 10.0, 50.0, 40.0, 120.0, 0)]
+    p = coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]
+    assert p["count"] == "2" and "gender" not in p
+    # 'a women' is a slip for one woman, not a group
+    assert coco._people_said(coco._Cap("A women who is playing tennis.")) == {"1"}
+    assert coco._people_said(coco._Cap("Women playing tennis.")) == {"plural"}
+    # one box around a group: 'another', 'each other' and plural-only captions
+    ann = [(18, 200.0, 200.0, 200.0, 150.0, 0)]
+    caps = ["One brown dog chasing another.", "A dog standing in a park.", "Two brown dogs are wrestling.", "A dog playing with another dog."]
+    assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["thing"]["count"] == "2"
+    caps = ["Brown dogs lying in the sun.", "Dozens of dogs in a field.", "A dog park with dogs.", "Dogs resting."]
+    assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["thing"]["count"] == "several"
+    assert coco._plural("dogs", "dog") and not coco._plural("dog", "dog") and coco._plural("buses", "bus")
+    # two dog boxes, every caption says 'a dog': the count is unknown, not two
+    ann = [(18, 100.0, 200.0, 200.0, 150.0, 0), (18, 400.0, 100.0, 60.0, 40.0, 0)]
+    caps = ["A woman lying on a sofa next to a dog.", "A woman and a dog on a couch.", "The woman and a dog are resting.",
+            "Girl playing with her dog."]
+    t = coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["thing"]
+    assert t["name"] == "dog" and "count" not in t
+
+
+def test_one_person_among_slips_kin_words_and_pairs():
+    """The four seeds the row writer skipped at batches 030-035."""
+    cat_names = {c["id"]: c["name"] for c in CATS}
+    cat_super = {c["name"]: c["supercategory"] for c in CATS}
+    free_id = next(i for i in range(1000) if not core.held_pick(f"coco-image:{i}"))
+    # one box, four captions introduce one woman, one says 'the women': one woman, not a group
+    caps = ["A woman with a dog is eating a sandwich.", "A women getting ready to walk a dog.",
+            "There is a woman walking a dog in a park.", "The women walks her dog in the park.", "A woman walking a dog."]
+    ann = [(18, 300.0, 200.0, 200.0, 150.0, 0), (1, 10.0, 50.0, 40.0, 120.0, 0)]
+    p = coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]
+    assert p["count"] == "1" and p["gender"] == "woman"
+    # an animal's kin word is not a person: 'a baby cow' beside one man
+    assert coco._people_said(coco._Cap("A man driving a horse drawn carriage with a baby cow in the back.")) == {"1"}
+    assert coco._people_said(coco._Cap("A mother elephant and a man.")) == {"1"}
+    assert coco._people_said(coco._Cap("A mother and a baby on a bench.")) == {"2"}            # people stay people
+    # two person words in a row are one person
+    assert coco._people_said(coco._Cap("A baby girl is hugging a teddy bear.")) == {"1"}
+    assert coco._people_said(coco._Cap("a women surfer holding her surf board in the water")) == {"1"}
+    assert coco._people_said(coco._Cap("A man and a woman on a bench.")) == {"2"}
+    # 'a pair of scissors' is one pair
+    scissors = {87: "scissors"}
+    caps = ["A white table with a pair of scissors and orange thread.", "A thread of yarn rests between a pair of scissors.",
+            "A spool of yellow yarn and a pair of silver scissors.", "A pair of scissors with orange string on a spool."]
+    t = coco.build(free_id, 640, 480, [(87, 200.0, 200.0, 200.0, 150.0, 0)], caps, scissors, {"scissors": "indoor"})["spec"]["thing"]
+    assert t["name"] == "scissors" and t["count"] == "1"
+    # a material is not a place
+    assert "woods" not in coco._Cap("In the background there is a wall which is made of woods.").t
+
+
+def test_sign_text_and_figurines_are_not_the_picture():
+    c = coco._Cap("a small shed that says fire hydrant and hose.")
+    assert not c.cats.get("fire hydrant")                                   # the label's words, not a hydrant
+    c = coco._Cap("A woman reading a book on a bench.")
+    assert "book" in c.t                                                    # a reader's book stays
+    assert coco._people_said(coco._Cap("A cuddling bride and groom topper on a cake.")) == set()
+    assert coco._people_said(coco._Cap("A plastic bride and groom on a wedding cake.")) == set()
+    assert coco._people_said(coco._Cap("A bride and groom cutting a cake.")) == {"2"}       # real people stay people
 
 
 def test_unshout_drops_all_capitals_sentences():

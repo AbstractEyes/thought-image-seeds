@@ -79,6 +79,39 @@ def test_animal_kin_and_a_second_thing():
     assert ("person", "count") in f                                           # 'her baby': the people stay people
     f = ln.facts("A man is leaning on this table. On the table there are glasses. At the left there is a table with trophies.", False)
     assert f.get(("thing", "name")) == "table" and ("thing", "count") not in f   # 'this table ... a table': two tables
+    f = ln.facts("In the center there is an airplane. In the background there is another airplane and a building.", False)
+    assert f.get(("thing", "name")) == "airplane" and ("thing", "count") not in f
+
+
+def test_words_read_off_a_sign_are_not_the_picture():
+    t = "There is an object in the center. On the object there is some text written as meter remains as a courtesy to cyclist please pay."
+    assert ln.unwritten(t) == "There is an object in the center. On the object there is some text written."
+    f = ln.facts(t, False)
+    assert not any(isinstance(k, tuple) and k[0] == "person" for k in f)            # no cyclist in the picture
+    f = ln.facts("A man is standing near a board. Something is written on it.", False)
+    assert f[("person", "count")] == "1"                                              # 'written on it' alone takes nothing away
+    t = ("There is a sign board on which it is written as ''dog run'' and there is a house at the center, there is a boy who is "
+         "walking at the left side, there are trees")
+    assert ln.unwritten(t).startswith("There is a sign board on which it is written and there is a house")
+    assert ln.facts(t, False)[("person", "gender")] == "boy"                          # the read words end at their closing quote
+    t = "A board with text written as please pay here and there is a man standing beside it."
+    assert ln.facts(t, False)[("person", "gender")] == "man"                          # unquoted: they end at the next clause
+
+
+def test_a_material_is_not_a_place():
+    t = ("In this image, in the middle there is a animal which is in brown color, in the left side there is kid standing and "
+         "holding a object, in the background there is a wall which is made of woods.")
+    assert ("scene", "setting") not in ln.facts(t, False)                             # a wall of wood, not a forest
+    assert ln.facts("A man is walking in the woods with a dog.", False)[("scene", "setting")] == "forest"
+
+
+def test_the_hint_agrees_with_the_chosen_facts():
+    narr = ["A woman is standing on the beach and holding a surfboard.",
+            "A woman holding a surfboard on the sand near the ocean.",
+            "In the center of the image there is a woman who is standing on the beach. She is wearing a black dress and holding a "
+            "white skateboard. In the background there is an ocean and a sky with clouds."]
+    s = ln.build(4242, narr)
+    assert s["spec"]["thing"]["name"] == "surfboard" and "skateboard" not in s["hint"]
 
 
 def test_module_contract():

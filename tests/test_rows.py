@@ -40,6 +40,84 @@ def test_drawn_specs_pass_the_coherence_filter(tmp_path):
     from thought_seeds.rows import incoherent
     assert incoherent({"person": {"gender": "boy", "age": "20s"}}) == ["boy aged 20s"]
     assert incoherent({"scene": {"setting": "library", "weather": "fog"}})
+    # the classes the row writer reported at batches 004-007
+    macro = {"shot": {"framing": "macro"}, "relation": [{"a": "boy", "rel": "holding", "b": "suitcase"}]}
+    assert incoherent(macro) == ["macro framing of a relation between two things"]
+    assert incoherent({"shot": {"framing": "detail"}, "look": {"hair": "afro", "expression": "blush"}})
+    assert not incoherent({"shot": {"framing": "detail"}, "look": {"hair": "afro"}})
+    assert incoherent({"shot": {"light": "soft window"}, "scene": {"setting": "beach"}})
+    assert incoherent({"shot": {"light": "street lamp"}, "scene": {"setting": "stadium"}})
+    assert not incoherent({"shot": {"light": "street lamp"}, "scene": {"setting": "alley"}})
+    assert incoherent({"shot": {"light": "golden"}, "scene": {"setting": "subway"}})
+    assert incoherent({"form": {"compose": "horizon high"}, "scene": {"setting": "subway"}})
+    assert incoherent({"relation": [{"a": "book", "rel": "inside", "b": "window"}]})
+    assert incoherent({"relation": [{"a": "man", "rel": "holding", "b": "cup"}, {"a": "cup", "rel": "inside", "b": "suitcase"}]})
+    assert incoherent({"shot": {"light": "high key"}, "scene": {"time": "blue hour"}})
+    assert incoherent({"scene": {"weather": "heat shimmer", "time": "late evening"}})
+    assert incoherent({"shot": {"light": "silhouette"}, "relation": [{"a": "hat", "rel": "same colour as", "b": "door"}]})
+    assert incoherent({"shot": {"lens": "anamorphic"}, "form": {"medium": "lithograph"}})
+    assert not incoherent({"shot": {"lens": "35mm"}, "form": {"medium": "3d render"}})
+    assert incoherent({"shot": {"framing": "extreme close"}, "form": {"compose": "frame in frame"}})
+    assert incoherent({"shot": {"framing": "extreme close"}, "thing": {"name": "dog"}})
+    assert not incoherent({"shot": {"framing": "macro"}, "thing": {"name": "cup"}})
+    assert incoherent({"shot": {"framing": "detail", "angle": "over the shoulder"}})
+    assert incoherent({"shot": {"light": "silhouette"}, "form": {"contrast": "low"}})
+    assert incoherent({"scene": {"setting": "library", "weather": "clear"}})
+    assert incoherent({"body": {"pose": "floating"}, "scene": {"setting": "classroom"}})
+    assert not incoherent({"body": {"pose": "floating"}, "scene": {"setting": "pier"}})
+    assert incoherent({"scene": {"setting": "subway", "time": "blue hour"}})
+    assert not incoherent({"scene": {"setting": "subway", "time": "midnight"}})
+    assert incoherent({"shot": {"light": "candle"}, "scene": {"setting": "bridge", "weather": "storm"}})
+    assert not incoherent({"shot": {"light": "candle"}, "scene": {"setting": "attic"}})
+    assert incoherent({"shot": {"light": "fluorescent"}, "scene": {"setting": "stadium", "time": "afternoon"}})
+    assert not incoherent({"shot": {"light": "fluorescent"}, "scene": {"setting": "stadium", "time": "night"}})
+    assert incoherent({"relation": [{"a": "man", "rel": "holding", "b": "drum"}, {"a": "drum", "rel": "leaning on", "b": "chair"}]})
+    assert incoherent({"body": {"pose": "jumping"}, "relation": [{"a": "girl", "rel": "leaning on", "b": "horse"}]})
+    assert not incoherent({"body": {"pose": "resting"}, "relation": [{"a": "girl", "rel": "leaning on", "b": "horse"}]})
+    assert incoherent({"form": {"medium": "cyanotype"}, "wear": {"clothing": "kimono", "colour": "crimson"}})
+    assert not incoherent({"form": {"medium": "cyanotype"}, "wear": {"clothing": "kimono"}})
+    assert not incoherent({"form": {"medium": "watercolour"}, "wear": {"colour": "crimson"}})
+    assert incoherent({"shot": {"light": "silhouette"}, "form": {"contrast": "colour"}})
+    from thought_seeds.rows import photo_ok
+    assert not photo_ok({"thing": {"name": "dog", "colour": "light blue"}}, "photograph")
+    assert photo_ok({"thing": {"name": "dog", "colour": "light blue"}}, "illustration")
+    assert photo_ok({"thing": {"name": "dog", "colour": "light brown"}}, "photograph")
+    from thought_seeds.rows import tighten
+    series = {"medium": {"shot": {"framing": "macro"}, "look": {"hair": "afro", "expression": "blush"},
+                         "relation": [{"a": "boy", "rel": "holding", "b": "cup"}]},
+              "simple": {"look": {"hair": "afro"}}}
+    t = tighten(series)
+    assert t["medium"] == {"shot": {"framing": "macro"}, "look": {"hair": "afro"}} and not incoherent(t["medium"])
+    assert t["simple"] == series["simple"] and series["medium"]["look"]["expression"] == "blush"     # the input is not changed
+    # the cut is decided on the fullest rank and applied to all: the ranks stay nested
+    from thought_seeds.rows import nested
+    series = {"simple": {"wear": {"clothing": "uniform"}, "thing": {"name": "cup"}},
+              "medium": {"shot": {"framing": "macro"}, "wear": {"clothing": "uniform"}, "thing": {"name": "cup"}},
+              "deep": {"shot": {"framing": "macro"}, "look": {"hair": "afro"}, "wear": {"clothing": "uniform"}, "thing": {"name": "cup"}}}
+    assert nested(series)
+    t = tighten(series)
+    assert nested(t) and "wear" not in t["simple"] and "wear" not in t["medium"] and t["deep"]["look"] == {"hair": "afro"}
+    # the classes the row writer reported at batches 030-035
+    assert incoherent({"shot": {"light": "silhouette"}, "wear": {"colour": "red"}})
+    assert not incoherent({"shot": {"light": "silhouette"}, "wear": {"clothing": "vest"}})
+    assert incoherent({"shot": {"light": "silhouette", "framing": "extreme close"}, "wear": {"clothing": "vest"}})
+    assert incoherent({"shot": {"framing": "macro"}, "scene": {"setting": "cliff"}})
+    assert incoherent({"scene": {"setting": "night market", "time": "golden hour"}})
+    assert not incoherent({"scene": {"setting": "night market", "time": "night"}})
+    assert incoherent({"relation": [{"a": "kite", "rel": "behind", "b": "camera"}]})
+    assert not incoherent({"relation": [{"a": "woman", "rel": "holding", "b": "camera"}]})
+    assert incoherent({"relation": [{"a": "window", "rel": "under", "b": "table"}]})
+    assert not incoherent({"relation": [{"a": "dog", "rel": "under", "b": "table"}]})
+    assert not incoherent({"relation": [{"a": "cup", "rel": "under", "b": "table"}]})
+    assert incoherent({"relation": [{"a": "tree", "rel": "in front of", "b": "book"}]})
+    assert incoherent({"relation": [{"a": "umbrella", "rel": "above", "b": "tree"}]})
+    assert not incoherent({"relation": [{"a": "kite", "rel": "above", "b": "tree"}]})
+    series = {"simple": {"wear": {"colour": "red"}, "scene": {"setting": "cliff"}},
+              "medium": {"wear": {"colour": "red"}, "scene": {"setting": "cliff"}, "look": {"hair": "afro"}},
+              "deep": {"shot": {"light": "silhouette", "framing": "macro"}, "wear": {"colour": "red"}, "scene": {"setting": "cliff"},
+                       "look": {"hair": "afro"}, "thing": {"name": "cup"}}}
+    t = tighten(series)
+    assert nested(t) and all("wear" not in s and "scene" not in s for s in t.values()) and not incoherent(t["deep"])
     path = draw(11, 40, 40, str(tmp_path), rng_seed=5)
     for line in open(path):
         it = json.loads(line)

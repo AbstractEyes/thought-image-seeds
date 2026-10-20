@@ -39,6 +39,69 @@ YOUNG_AGES = {"child", "baby", "teen"}
 INDOOR = {"kitchen", "studio", "subway", "cathedral", "cafe", "library", "ballroom", "classroom", "greenhouse", "workshop",
           "laboratory", "temple", "hospital ward", "attic", "cave"}
 TIGHT_FRAMING = {"macro", "extreme close", "detail"}
+NO_SKY = {"subway", "cave"}                   # no sun, moon or horizon reaches them
+STREET_LIT = {"market street", "alley", "bridge", "bus stop", "harbour", "pier", "rooftop", "courtyard", "night market", "skate park"}
+SKY_LIGHTS = {"hard sun", "golden", "dappled", "moonlight"}
+SKY_HOURS = {"dawn", "golden hour", "dusk", "blue hour"}                 # hours named by the colour of the sky
+WET_OR_WINDY = {"rain", "storm", "wind", "drizzle", "sleet", "snow"}
+DAY_HOURS = {"morning", "noon", "afternoon"}
+MOVING_POSES = {"walking", "running", "jumping", "dancing", "climbing", "floating", "stretching", "reaching"}
+MONO_MEDIA = {"cyanotype", "silver print", "charcoal", "pencil"}                     # a picture in one colour of its medium
+FLAT_THINGS = {"window", "mirror", "painting", "poster", "flag", "map", "sign"}     # nothing is 'inside' them
+DARK_HOURS = {"blue hour", "night", "midnight", "late evening"}
+WIDE_COMPOSE = {"frame in frame", "horizon high", "horizon low", "leading lines"}      # compositions a macro frame cannot hold
+WATER = {"beach", "river bank", "harbour", "pier", "swamp"}                            # where a person floats
+PERSON_DETAILS = (("look", "hair"), ("look", "expression"), ("look", "eyes"), ("wear", "clothing"), ("wear", "colour"),
+                  ("wear", "accessory"))
+TIGHT_DETAILS = {"extreme close": 3, "macro": 1, "detail": 1}      # an extreme close of a face shows hair, expression and eyes
+DEEP_MIN_DRAWN = 10       # a deep spec keeps 10 drawn records after tighten(); the writer's mood, intent and story reach the deep count
+SILHOUETTE_HIDES = (("wear", "colour"), ("thing", "colour"), ("look", "expression"), ("look", "eyes"), ("look", "makeup"),
+                    ("look", "skin"))       # a figure dark against the light shows its outline, not its colours or its face
+VIEWER_RELS = {"left of", "right of", "behind", "in front of", "beside", "facing", "looking at"}    # 'the camera' here reads as the viewer
+NIGHT_SETTINGS = {"night market"}
+NOT_NIGHT = DAY_HOURS | {"dawn", "golden hour"}
+ALOFT_SMALL = {"bird", "kite", "flag", "lantern", "clock"}        # small things that hang or fly above a large one
+
+
+def nested(specs: dict) -> bool:
+    """A series' ranks are nested: every record of the simple spec is in the medium spec, and every record of the medium in the deep."""
+    rec = {d: set(map(str, tp.records(s))) for d, s in specs.items()}
+    return rec["simple"] <= rec["medium"] <= rec["deep"]
+
+
+def tighten(specs: dict) -> dict:
+    """A drawn series at a tight framing or under a silhouette, made one picture. At a tight framing the relations go (a macro frame
+    shows one small part, not two things in a relation), the person keeps only the details the framing can show (the first in
+    PERSON_DETAILS order) and a macro frame loses the setting (it shows none of it). Under a silhouette the colours and the face go
+    (SILHOUETTE_HIDES), and at a tight framing the clothing too. The framing and light words stay in the drawn rows instead of being
+    redrawn away. The cut is decided on the fullest rank and applied to every rank, so the ranks stay nested (each a subset of the
+    next). -> the series' specs, changed only when a rank's framing is tight or its light a silhouette."""
+    tight = [s.get("shot", {}).get("framing") for s in specs.values() if s.get("shot", {}).get("framing") in TIGHT_FRAMING]
+    sil = any(s.get("shot", {}).get("light") == "silhouette" for s in specs.values())
+    if not tight and not sil:
+        return specs
+    fr = tight[0] if tight else None
+    full = max(specs.values(), key=tp.n_records)
+    cut = set(SILHOUETTE_HIDES) if sil else set()
+    if fr:
+        shown = [k for k in PERSON_DETAILS if full.get(k[0], {}).get(k[1]) and k not in cut]
+        cut |= set(shown[TIGHT_DETAILS[fr]:])
+        if fr == "macro":
+            cut.add(("scene", "setting"))
+        if sil:
+            cut.add(("wear", "clothing"))
+    big = bool(fr) and tp.SIZE.get(full.get("thing", {}).get("name"), 2) > 1   # a whole dog does not fit a macro frame: the thing goes
+    out = {}
+    for depth, spec in specs.items():
+        s = {k: dict(v) if isinstance(v, dict) else v for k, v in spec.items()
+             if not (fr and k == "relation") and not (big and k == "thing")}
+        for sys_, attr in cut:
+            if attr in s.get(sys_, {}):
+                del s[sys_][attr]
+                if not s[sys_]:
+                    del s[sys_]
+        out[depth] = s
+    return out
 NOT_DRAWN_MEDIA: set = set()                # media the validator cannot pass (none since tools 0.1.1)
 
 
@@ -57,9 +120,92 @@ def incoherent(spec: dict) -> list:
         why.append("a two shot of one person")
     if fr in TIGHT_FRAMING and spec.get("body", {}).get("pose"):
         why.append(f"{fr} framing of a {spec['body']['pose']} pose")
+    rels = spec.get("relation") or []
+    if fr in TIGHT_FRAMING and rels:
+        why.append(f"{fr} framing of a relation between two things")          # a macro frame shows one small part
+    details = [k for k in PERSON_DETAILS if spec.get(k[0], {}).get(k[1])]
+    if fr in TIGHT_FRAMING and len(details) > TIGHT_DETAILS[fr]:
+        why.append(f"{fr} framing of {len(details)} details of a person")
     sc = spec.get("scene", {})
-    if sc.get("setting") in INDOOR and sc.get("weather") not in (None, "clear"):
-        why.append(f"{sc['weather']} inside a {sc['setting']}")
+    st = sc.get("setting")
+    if st in INDOOR and sc.get("weather"):
+        why.append(f"{sc['weather']} weather inside a {st}")
+    light = spec.get("shot", {}).get("light")
+    if light == "soft window" and st and st not in INDOOR:
+        why.append(f"window light outdoors ({st})")
+    if light == "street lamp" and st and st not in STREET_LIT:
+        why.append(f"a street lamp at a {st}")
+    if st in NO_SKY and light in SKY_LIGHTS:
+        why.append(f"{light} light in a {st}")
+    if st in NO_SKY and sc.get("time") in SKY_HOURS:
+        why.append(f"{sc['time']} in a {st}")                                  # the hour of the sky's colour, where no sky shows
+    if light == "candle" and st and st not in INDOOR and sc.get("weather") in WET_OR_WINDY:
+        why.append(f"candle light in {sc['weather']} at a {st}")
+    if light == "fluorescent" and st and st not in INDOOR and sc.get("time") in DAY_HOURS:
+        why.append(f"tube light at a {st} in the {sc['time']}")                 # daylight outdoors drowns a tube light
+    if st in INDOOR and spec.get("form", {}).get("compose") in ("horizon high", "horizon low"):
+        why.append(f"a horizon inside a {st}")
+    for r in rels:
+        if r.get("rel") == "inside" and r.get("b") in FLAT_THINGS:
+            why.append(f"{r.get('a')} inside a {r['b']}")
+    pose = spec.get("body", {}).get("pose")
+    if pose in MOVING_POSES and any(r.get("rel") == "leaning on" and r.get("a") not in (None, r.get("b")) for r in rels):
+        why.append(f"{pose} while leaning on something")                       # a leaning person is at rest
+    held = {r.get("b") for r in rels if r.get("rel") == "holding"}
+    for r in rels:
+        if r.get("a") in held and r.get("rel") in ("inside", "on", "under", "leaning on"):
+            why.append(f"{r['a']} held and {r['rel']} a {r.get('b')}")              # a held cup is not also in a suitcase
+    tm, wx = sc.get("time"), sc.get("weather")
+    if light == "high key" and (tm in DARK_HOURS or wx in ("storm", "rain", "fog", "sleet")):
+        why.append(f"high key light at {tm or wx}")
+    if wx == "heat shimmer" and tm in DARK_HOURS | {"dusk", "dawn"}:
+        why.append(f"heat shimmer at {tm}")
+    if light == "silhouette" and any(r.get("rel") == "same colour as" for r in rels):
+        why.append("a colour relation under a silhouette")
+    form = spec.get("form", {})
+    if form.get("medium") in MONO_MEDIA:
+        colours = [f"{s} {a}" for s, a in (("wear", "colour"), ("thing", "colour"), ("look", "eyes"), ("form", "palette"))
+                   if spec.get(s, {}).get(a)] + [r["rel"] for r in rels if r.get("rel") == "same colour as"]
+        if colours:
+            why.append(f"{', '.join(colours)} on a {form['medium']}")            # one colour of ink, silver or graphite
+    if spec.get("shot", {}).get("lens") and form.get("medium") and form["medium"] not in PHOTO_MEDIA | {"3d render", "digital painting"}:
+        why.append(f"a {spec['shot']['lens']} lens on a {form['medium']}")       # a lens is the camera's, not a lithograph's
+    if fr in TIGHT_FRAMING and form.get("compose") in WIDE_COMPOSE:
+        why.append(f"{form['compose']} at a {fr} framing")
+    if fr in TIGHT_FRAMING and spec.get("shot", {}).get("angle") == "over the shoulder":
+        why.append(f"over the shoulder at a {fr} framing")
+    thing = spec.get("thing", {}).get("name")
+    if fr in TIGHT_FRAMING and thing and tp.SIZE.get(thing, 2) > 1:
+        why.append(f"a whole {thing} in a {fr} frame")                         # a macro frame holds a hand-sized thing
+    if light == "silhouette" and form.get("contrast") in ("low", "gentle", "tonal", "colour"):
+        why.append(f"{form['contrast']} contrast under a silhouette")
+    if spec.get("body", {}).get("pose") == "floating" and st and st not in WATER:
+        why.append(f"floating at a {st}")
+    if light == "silhouette":
+        hidden = [f"{s} {a}" for s, a in SILHOUETTE_HIDES if spec.get(s, {}).get(a)]
+        if fr in TIGHT_FRAMING and spec.get("wear", {}).get("clothing"):
+            hidden.append("wear clothing")                                     # a vest at an extreme close, all outline
+        if hidden:
+            why.append(f"{', '.join(hidden)} under a silhouette")
+    if fr == "macro" and st:
+        why.append(f"a {st} in a macro frame")                                 # a macro frame shows none of the place
+    if st in NIGHT_SETTINGS and tm in NOT_NIGHT:
+        why.append(f"a {st} at {tm}")
+    for r in rels:
+        a_, b_, rel = r.get("a"), r.get("b"), r.get("rel")
+        if "camera" in (a_, b_) and rel in VIEWER_RELS:
+            why.append(f"{a_} {rel} {b_}: the camera reads as the viewer")
+        sa, sb = tp.SIZE.get(a_), tp.SIZE.get(b_)
+        if sa is None or sb is None:
+            continue                                                           # a person or an unsized thing: the tools' own checks
+        if rel == "under" and sa >= sb and sa >= 2 and a_ not in tp.ANIMATE:
+            why.append(f"a {a_} under a {b_}")                                 # a window under a table, a table under a chair
+        if rel == "in front of" and sa - sb >= 2:
+            why.append(f"a {a_} in front of a {b_}, hiding it")                # a tree in front of a book
+        if rel == "behind" and sb - sa >= 2:
+            why.append(f"a {a_} behind a {b_}, hidden")
+        if rel == "above" and sa == 1 and sb == 3 and a_ not in ALOFT_SMALL:
+            why.append(f"a {a_} hovering above a {b_}")                        # an umbrella above a whole tree
     if spec.get("form", {}).get("medium") in NOT_DRAWN_MEDIA:
         why.append(f"medium {spec['form']['medium']}")
     return why
@@ -114,6 +260,18 @@ def domain_for(spec: dict, rng, mix=DRAWN_DOMAINS) -> str:
             return dom
     names, p = zip(*mix)
     return str(rng.choice(names, p=p))
+
+
+FURRED = {"dog", "cat", "horse"}
+UNNATURAL_FUR = {"blue", "light blue", "dark blue", "navy", "teal", "turquoise", "aqua", "purple", "violet", "lavender", "lilac",
+                 "plum", "indigo", "magenta", "pink", "coral", "peach", "green", "emerald", "olive", "mint", "scarlet", "crimson",
+                 "wine", "maroon", "mustard"}
+
+
+def photo_ok(spec: dict, domain: str) -> bool:
+    """A photograph shows a dog, a cat or a horse in a colour its coat can have (a light blue dog is an illustration's)."""
+    t = spec.get("thing", {})
+    return not (domain == "photograph" and t.get("name") in FURRED and t.get("colour") in UNNATURAL_FUR)
 
 
 def _medium_in_mix(spec: dict, mix) -> bool:
@@ -189,14 +347,19 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
                         license=row_license(seed), note="the deep spec is the seed: keep every record; cut the medium and simple "
                                                          "specs from it as subsets")
         else:
+            dom = None
             for _ in range(400):
-                specs = tp.sample_series(rng, lists)
-                if (not incoherent(specs["deep"]) and not thin(specs["simple"], "simple") and not thin(specs["medium"], "medium")
+                specs = tighten(tp.sample_series(rng, lists))
+                if (nested(specs) and not any(incoherent(s) for s in specs.values()) and not thin(specs["simple"], "simple")
+                        and not thin(specs["medium"], "medium") and tp.n_records(specs["deep"]) >= DEEP_MIN_DRAWN
                         and _medium_in_mix(specs["deep"], mix)):
-                    break
+                    dom = domain_for(specs["deep"], rng, mix)
+                    if photo_ok(specs["deep"], dom):
+                        break
             specs = {d: _tidy(s) for d, s in specs.items()}
             item = dict(kind="series", series=sid, ids=[f"art-{batch:03d}{k + i:03d}" for i in range(3)],
-                        domain=domain_for(specs["deep"], rng, mix), genre=None, specs=specs, seed_id=None, license=PERMISSIVE_ROW)
+                        domain=dom or domain_for(specs["deep"], rng, mix), genre=None, specs=specs, seed_id=None,
+                        license=PERMISSIVE_ROW)
         k += 3
         out.append(item)
     names, p = zip(*PILOT_DEPTHS)
@@ -209,13 +372,17 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
                         ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=seed["domain"], genre=seed["genre"], spec=seed["spec"],
                         seed_id=seed["seed_id"], hint=seed.get("hint", ""), license=row_license(seed))
         else:
+            dom = None
             for _ in range(400):
-                spec = tp.sample_spec(rng, depth, lists)
-                if not incoherent(spec) and not thin(spec, depth) and _medium_in_mix(spec, mix):
-                    break
+                spec = tighten({depth: tp.sample_spec(rng, depth, lists)})[depth]
+                if (not incoherent(spec) and not thin(spec, depth) and _medium_in_mix(spec, mix)
+                        and (depth != "deep" or tp.n_records(spec) >= DEEP_MIN_DRAWN)):
+                    dom = domain_for(spec, rng, mix)
+                    if photo_ok(spec, dom):
+                        break
             spec = _tidy(spec)
             item = dict(kind="single", series=f"s-{batch:03d}{n_series + j:02d}" if n_series + j < 100 else None,
-                        ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=domain_for(spec, rng, mix), genre=None, spec=spec,
+                        ids=[f"art-{batch:03d}{k:03d}"], depth=depth, domain=dom or domain_for(spec, rng, mix), genre=None, spec=spec,
                         seed_id=None, license=PERMISSIVE_ROW)
         k += 1
         out.append(item)
