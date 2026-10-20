@@ -25,18 +25,24 @@ from . import met
 DATASET = "aic"
 LICENSE = "CC0 1.0 (records); CC BY 4.0 (description hints)"
 URL = "https://api.artic.edu/docs/"
-ATTRIBUTION = ("Art Institute of Chicago, public API (api.artic.edu): artwork data CC0 1.0; description texts CC BY 4.0, "
-               "credit: Art Institute of Chicago")
+TERMS_URL = "https://www.artic.edu/terms"
+ATTRIBUTION = ("Art Institute of Chicago, public API (api.artic.edu), artworks endpoint: artwork data CC0 1.0, the description "
+               "field CC BY 4.0 (credit: Art Institute of Chicago), each under the Terms and Conditions of artic.edu "
+               f"({TERMS_URL}), as the API's own license notice states")
 CITATION = """@misc{artic_api,
   author       = {{Art Institute of Chicago}},
   title        = {Art Institute of Chicago Public API},
   year         = {2018},
   howpublished = {\\url{https://api.artic.edu/docs/}},
   note         = {Artwork data under Creative Commons Zero (CC0 1.0); the description field under CC BY 4.0, credit Art Institute of
-                  Chicago; artworks with is_public_domain = true; accessed 2026-10-19}
+                  Chicago; both under the Terms and Conditions of artic.edu; artworks with is_public_domain = true; accessed 2026-10-19}
 }"""
 TAKEN = ("records + hint: public-domain artworks from the search API (style_title, medium_display, technique / material / "
-         "classification terms, date_start / date_end, artwork_type_title, subject_titles, color, description); no artist or title")
+         "classification terms, date_start / date_end, artwork_type_title, subject_titles, color, description); no artist or title "
+         "(the artist fields and the title are read only to find the names a description must not keep)")
+MODIFIED = ("modified by this dataset: catalogue values mapped to the dataset's closed lists; the hint is an excerpt of the CC BY "
+            "description, every sentence that may hold a name or speaks of the image as an image removed and the rest cut to fit "
+            "600 bytes, with medium and subject lines built from the CC0 fields")
 API = "https://api.artic.edu/api/v1/artworks/search"
 ARTWORK_URL = "https://www.artic.edu/artworks/{}"
 MAX_ARTWORKS = 6000
@@ -44,7 +50,9 @@ PAGE = 100
 HEADERS = {"AIC-User-Agent": "thought-seeds (https://huggingface.co/datasets/AbstractPhil/thought-symbolic-image-captions)"}
 FIELDS = ("id,title,date_start,date_end,medium_display,artwork_type_title,classification_title,classification_titles,style_title,"
           "style_titles,subject_titles,material_titles,technique_titles,theme_titles,color,description,is_public_domain,"
-          "place_of_origin")
+          "place_of_origin,artist_title,artist_titles,artist_display")
+ARTIST_FIELDS = ("artist_title", "artist_display")          # read only for the name filter (a batch fetched without them has none)
+COMPUTED_MIN_PERCENT = 3.0      # the computed colour's 'percentage' (a percent: it reaches 4.07 in the fetched data) to name it
 LIC_CC0, LIC_BY = "CC0 1.0", "CC BY 4.0"
 
 TYPE_DOMAIN = {"painting": "painting", "sculpture": "sculpture", "photograph": "photograph", "print": "illustration",
@@ -118,10 +126,13 @@ def style_of(texts) -> str | None:
 
 
 def hsl_name(c: dict) -> str | None:
-    """The API's computed colour (h 0-360, s and l 0-100) to a plain colour of the list, or None when it is not clear."""
+    """The API's computed colour (h 0-360, s and l 0-100) to a plain colour of the list, or None when it is not clear or covers
+    under COMPUTED_MIN_PERCENT of the picture by the API's own 'percentage' (a speck is no colour of the palette)."""
     try:
         h, s, l = float(c["h"]), float(c["s"]), float(c["l"])
-    except (TypeError, KeyError, ValueError):
+        if float(c.get("percentage") or 0) < COMPUTED_MIN_PERCENT:
+            return None
+    except (TypeError, KeyError, ValueError, AttributeError):
         return None
     if l <= 12:
         return "black"
@@ -208,8 +219,10 @@ def artworks(raw_dir: str) -> list:
 
 
 def western(a: dict) -> bool:
-    """A work of the European tradition (its style, place and classification name no other): the European era names apply."""
-    text = " ".join([a.get("style_title") or "", a.get("place_of_origin") or ""] + list(a.get("classification_titles") or []))
+    """A work of the European tradition (its styles, place and classifications name no other: 'Pre-Columbian', 'americas',
+    'Islamic (culture or style)' in style_titles are not): the European era names apply."""
+    text = " ".join([a.get("style_title") or "", a.get("place_of_origin") or ""] + list(a.get("style_titles") or []) +
+                    list(a.get("classification_titles") or []))
     return not met.NON_WESTERN.search(core.ascii_text(text))
 
 
@@ -237,12 +250,52 @@ def domain_of(a: dict, medium: str | None) -> str:
     return "design"
 
 
-def build(a: dict, vocab: set):
+# the head words of object names: a design object's title gives its thing only when it ends in one of them or in a word of the
+# artwork's own classification terms (a tapestry's title names its scene: 'The Lovers', 'A Falconer with Two Ladies')
+# catalogue words for an object (the last word of a design object's title noun must be one: a vessel shape, a garment, a fitting;
+# never a figure, a scene or a material word: 'lovers', 'falconer', 'stag hunt', 'striped silk', 'salt' for a salt cellar)
+OBJECT_WORDS = frozenset((
+    "vessel furniture jewelry pendant ornament costume garment panel hanging cover case stand screen frame chest saucer dish pot "
+    "flask canteen lid spoon fork knife container stamnos kantharos kalpis pelike olpe psykter dinos lebes lekanis loutrophoros "
+    "rhyton mug cup chalice flagon decanter carafe teacup coffeepot sauceboat salver charger bucket pail cauldron tripod censer "
+    "burner brazier lantern candelabrum chandelier sconce monstrance reliquary ciborium paten cross crucifix casket coffer bureau "
+    "commode drawer stool bench bed cradle kesa cope chasuble dalmatic stole orphrey mantle cloak tunic coat jacket vest skirt scarf "
+    "headcloth turban cap bonnet glove slipper sandal boot belt sash apron blanket bedcover valance curtain mat towel napkin "
+    "tablecloth cushion pillow border sampler suzani sarape poncho shroud veil pectoral comb hairpin buckle clasp button hook "
+    "weight seal plaque plaquette mold mould finial mount harness spur cuirass gauntlet pillar column lintel monument naiskos "
+    "sarcophagus ossuary tusk bell drum rattle whistle doll centerpiece epergne cistern cloth").split())
+OBJECT_HEADS = ({re.sub(r"\s*\([^)]*\)", "", n).split()[-1] for n in OBJECT_NOUNS} | set(TYPE_NOUN.values()) | OBJECT_WORDS)
+
+
+def object_title(noun: str, cls: list) -> bool:
+    """Whether a design object's title noun names an object: its last word (or that word's singular, or the last part of a
+    hyphenated word: 'column-krater') is an object word (OBJECT_HEADS) or the last word of one of its classification terms
+    ('covered jar', 'pair of vases', 'incense burner'; not 'lovers', 'falconer', 'stag hunt', 'recumbent stag', 'woven silk')."""
+    heads = OBJECT_HEADS | {re.sub(r"\s*\([^)]*\)", "", c).split()[-1] for c in cls if re.sub(r"\s*\([^)]*\)", "", c).split()}
+    last = noun.split()[-1]
+    return noun in OBJECT_NOUNS or any(w in heads for w in (last, met._singular(last) or "", last.rsplit("-", 1)[-1]))
+
+
+def own_names(a: dict, plain: set) -> core.NameList:
+    """The name words of one artwork: its artist fields (when the batch holds them; any case), and as openers (core.NameList)
+    the words of its title that are not plain words (a sitter, a place) and of its capitalized subject terms ('Napoleon', 'Saint
+    Margaret'; 'Chariots', 'Bread' are capitalized there too, so in lower case these words are ordinary words)."""
+    vals = [a.get(f) or "" for f in ARTIST_FIELDS] + [t for t in (a.get("artist_titles") or []) if t]
+    caps = [t for t in (a.get("subject_titles") or []) if t and t[:1].isupper()]
+    return core.NameList(core.name_tokens(vals, met.CULTURE_WORDS), plain,
+                         openers=met.title_names(a.get("title") or "", plain) | (core.name_tokens(caps, met.CULTURE_WORDS) - plain))
+
+
+def build(a: dict, vocab: set, names: core.NameList | None = None):
+    """One artwork to a seed, or None. `vocab`: the plain words of the descriptions (core.corpus_vocab); `names`: the name words
+    of every artwork's artist fields beside the ordinary words of the descriptions (core.plain_words; seeds builds both)."""
     aid = str(a["id"])
     title = a.get("title") or ""
     subjects = a.get("subject_titles") or []
     if met.EXPLICIT.search(" ".join([title, strip_html(a.get("description") or "")] + subjects + (a.get("theme_titles") or []))):
         return None
+    plain = names.plain if names is not None else vocab | met.TITLE_WORDS | met.CULTURE_WORDS
+    own = own_names(a, plain)
     medium_text = a.get("medium_display") or ""
     medium = met.medium_of(medium_text)
     if medium is None and not met.medium_blocked(medium_text):        # an engraving is not read again from its 'ink' material
@@ -264,17 +317,18 @@ def build(a: dict, vocab: set):
     gtitle = met.title_ok(title, vocab)
     sub = met.apply_subjects(s, terms, domain, thing_from_tags=domain != "design")
     noun = None
+    cls = [core.ascii_text(c or "").lower() for c in (a.get("classification_titles") or [])]
     if domain in ("design", "sculpture") and gtitle:
-        noun, state = met.object_noun(gtitle)
+        noun, state = met.object_noun(gtitle, armour=(a.get("artwork_type_title") or "").lower() in ("armor", "arms"))
         if noun and (maps.find(noun, maps.GENDER) or maps.find(noun, maps.AGE) or
-                     (domain == "sculpture" and not met.SCULPT_NAME.search(noun))):
-            noun = None                                   # a title naming the figure ('seated woman') is not the object's name
+                     (domain == "sculpture" and not met.SCULPT_NAME.search(noun)) or
+                     (domain == "design" and not object_title(noun, cls))):
+            noun = None                                   # a title naming the figure or the scene is not the object's name
         if noun and (domain == "design" or not sub["thing"]):
             s.set("thing", "name", noun, overwrite=domain == "design")
             if state:
                 s.set("thing", "state", state)
     if domain in ("design", "sculpture") and not noun and not (domain == "sculpture" and sub["thing"]):
-        cls = [core.ascii_text(c or "").lower() for c in (a.get("classification_titles") or [])]
         noun = next((re.sub(r" \(vessel\)$", "", c) for c in cls if c in OBJECT_NOUNS), None)
         if not noun and domain == "design":
             noun = TYPE_NOUN.get((a.get("artwork_type_title") or "").lower())
@@ -284,6 +338,7 @@ def build(a: dict, vocab: set):
                 s.set("thing", "state", "fragment")
     if gtitle:
         met.title_records(s, gtitle, domain)
+    met.title_disagrees(s, title)
     met.fix_person(s)
     if medium:
         s.set("form", "medium", medium)
@@ -291,14 +346,15 @@ def build(a: dict, vocab: set):
         metal = met.COLOUR_METAL.get(core.clean(medium_text))
         if metal:
             s.set("thing", "colour", metal)
-    st = style_of([a.get("style_title") or ""] + list(a.get("style_titles") or []))
+    styles = [a.get("style_title") or ""] + list(a.get("style_titles") or [])
+    st = style_of(styles)
     if st:
         s.set("form", "style", st)
     pal = palette(colours, hsl_name(a.get("color") or {}))
     if pal:
         s.set("form", "palette", pal)
     per = maps.period_of(a.get("date_start"), a.get("date_end"), western(a))
-    if per:
+    if per and met.era_agrees(per, styles):              # a work styled 'medieval' is not renaissance by its dates
         s.set("form", "period", per)
     genre = sub["genre"]
     if domain == "design" or (domain == "sculpture" and not genre):
@@ -309,27 +365,42 @@ def build(a: dict, vocab: set):
             domain, "drawing" if kind.startswith("drawing") else kind)
     parts = []
     med = met.plain_phrase(medium_text, 160)
-    if med:
+    if med and not core.holds_name(med, names, own, opening=False):
         parts.append(f"Medium: {med}.")
     ss = met.subject_sentence(terms)
     if ss:
         parts.append(ss)
     head = core.make_hint(parts)
-    desc = met.fit(core.drop_named_strict(strip_html(a.get("description") or ""), vocab), core.HINT_MAX - len(head) - 1)
+    # the description without image talk ('In this image, ...'), then without every sentence that may hold a name
+    desc = core.drop_named_strict(core.without_image_talk(strip_html(a.get("description") or "")), vocab, names=names, own=own)
+    desc = met.fit(desc, core.HINT_MAX - len(head) - 1)
     hint = core.make_hint([desc, head] if desc else [head])
     lic = LIC_BY if desc else LIC_CC0                   # the description text is CC BY 4.0; a seed without it stays CC0
     return core.make_seed(DATASET, aid, domain, genre, s, hint, lic, ARTWORK_URL.format(aid),
                           min_records=1 if len(hint) >= 100 else 2)
 
 
+def name_list(arts: list) -> core.NameList:
+    """The source's NameList: every artwork's artist names (the batches fetched before the artist fields were asked for hold
+    none: then the list is empty), beside the ordinary words of the descriptions and the media."""
+    artists = core.name_tokens((v for a in arts for v in [a.get(f) or "" for f in ARTIST_FIELDS] + list(a.get("artist_titles") or [])
+                                if v), met.CULTURE_WORDS)
+    texts = [strip_html(a.get("description") or "") for a in arts] + [a.get("medium_display") or "" for a in arts]
+    return core.NameList(artists, core.plain_words(texts) | met.TITLE_WORDS | met.CULTURE_WORDS)
+
+
 def seeds(raw_dir: str, limit: int | None = None):
+    """Seeds of the fetched artworks in id order; `limit`: at most that many (None: all, 0: none)."""
+    if limit is not None and limit <= 0:
+        return
     arts = artworks(raw_dir)
     vocab = core.corpus_vocab(strip_html(a.get("description") or "") for a in arts)
+    names = name_list(arts)
     n = 0
     for a in arts:
-        seed = build(a, vocab)
+        seed = build(a, vocab, names)
         if seed:
             yield seed
             n += 1
-            if limit and n >= limit:
+            if limit is not None and n >= limit:
                 return
