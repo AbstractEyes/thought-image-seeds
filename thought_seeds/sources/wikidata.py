@@ -687,6 +687,8 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict, group: str 
         return None
     persons, things, wear, details, depicted = [], [], [], [], []
     more = any(MORE_PEOPLE.search(core.clean(g)) for g in genres)      # something depicted suggests more persons than listed
+    more = more or any(not s["label"] and not s["nature"] and (s["human"] or {"human", "person"} & types.get(s["d"], set()))
+                       for s in stmts.values())          # a depicted person without an English label is one more figure
     hair = expr = pose = gesture = setting = tod = weather = light = layout = camera_angle = camera_frame = None
     for st in sts:
         lab = st["label"]
@@ -762,7 +764,8 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict, group: str 
             if "geo" in ty:
                 depicted.append(_counted(low, st["qty"]))
             elif _names_a_person(low):
-                more = True                               # an untyped figure ('postilion'): one more than the typed persons
+                more = True                               # an untyped figure ('postilion'): one more than the typed persons,
+                depicted.append(_counted(low, st["qty"]))  # named in the hint
             continue
         things.append({"rank": rank, "low": low, "st": st})
     if not persons:                                       # without a figure, a garment is an object of the picture

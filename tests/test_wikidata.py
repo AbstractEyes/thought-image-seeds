@@ -124,13 +124,16 @@ def test_the_person_count_is_stated_never_summed():
     seed = wikidata.build("Q11", "painting", stmts, prop, TYPES)
     assert "count" not in seed["spec"]["person"] and "14" not in seed["hint"] and "men" in seed["hint"]
     stmts, prop = _work(_st("Q200", "Louis", human=True, sex=["Q6581097"]), _st("Q1", "carriage"), _st("Q9", "postilion"))
-    assert "count" not in wikidata.build("Q12", "painting", stmts, prop, TYPES)["spec"]["person"]   # an untyped figure: more
+    seed = wikidata.build("Q12", "painting", stmts, prop, TYPES)
+    assert "count" not in seed["spec"]["person"] and "a postilion" in seed["hint"]   # an untyped figure: one more, named
     stmts, prop = _work(_st("Q200", "Louis", human=True, sex=["Q6581097"]), _st("Q1", "carriage"), _st("Q8", "crowd"))
     assert "count" not in wikidata.build("Q13", "painting", stmts, prop, TYPES)["spec"].get("person", {})
     stmts, prop = _work(_st("Q200", "Louis", human=True, sex=["Q6581097"]), _st("Q1", "carriage"))
     assert wikidata.build("Q14", "painting", stmts, prop, TYPES)["spec"]["person"] == {"count": "1", "gender": "man"}
     stmts, prop = _work(_st("Q467", "soldier", qty=3), _st("Q1", "carriage"))
     assert wikidata.build("Q15", "painting", stmts, prop, TYPES)["spec"]["person"]["count"] == "3"     # a stated quantity
+    stmts, prop = _work(_st("Q200", "Louis", human=True, sex=["Q6581097"]), _st("Q201", "", human=True), _st("Q1", "carriage"))
+    assert "count" not in wikidata.build("Q18", "painting", stmts, prop, TYPES)["spec"]["person"]   # one more, without a label
 
 
 def test_no_age_or_gender_from_a_birth_year():
