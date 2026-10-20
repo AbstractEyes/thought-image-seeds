@@ -15,6 +15,7 @@ import hashlib
 import os
 import re
 import sys
+from collections import Counter
 
 from .. import core, maps
 
@@ -31,6 +32,8 @@ CITATION = """@misc{met_openaccess,
 }"""
 TAKEN = ("records + hint: public-domain rows of MetObjects.csv (Medium, Object Begin/End Date, Department, Classification, Object "
          "Name, Culture, Tags, generic titles only); no artist, sitter, named title, period name or credit line")
+MODIFIED = ("transformed by this dataset, not the museum's own data: catalogue values mapped to the dataset's closed lists; the hint "
+            "is sentences assembled from the catalogue fields, any part that may hold a name left out")
 CSV_URL = "https://media.githubusercontent.com/media/metmuseum/openaccess/master/MetObjects.csv"
 OBJECT_URL = "https://www.metmuseum.org/art/collection/search/{}"
 
@@ -301,11 +304,19 @@ def norm_terms(terms) -> list:
     return out
 
 
+def recto(title: str) -> str:
+    """The part of a title that names the picture on the front of a sheet: the text before '(recto)', or before '(verso)' when the
+    title names only the back ('Battle Scene (recto) Two Seated Women (verso)' -> 'Battle Scene')."""
+    t = title or ""
+    m = re.search(r"\(\s*(?:recto|verso)\s*\)", t, re.I)
+    return t[:m.start()].strip() if m else t
+
+
 def title_ok(title: str, vocab: set | None = None) -> str | None:
-    """A title in lower case when every word of it is a plain generic word (no name, no foreign phrase), else None. `vocab`: the
-    plain words of the source's own text corpus (core.corpus_vocab: words that live in lower case there), allowed beside the
-    list."""
-    t = re.sub(r"\s*\([^)]*\)", "", core.ascii_text(title or "")).strip()     # a bracketed note goes (it may hold a name)
+    """A title in lower case when every word of it is a plain generic word (no name, no foreign phrase), else None (of a sheet's
+    title, the recto part). `vocab`: the plain words of the source's own text corpus (core.corpus_vocab: words that live in lower
+    case there), allowed beside the list."""
+    t = re.sub(r"\s*\([^)]*\)", "", core.ascii_text(recto(title))).strip()     # a bracketed note goes (it may hold a name)
     if not t or len(t) > 80 or any(c in t for c in "|()[]:;\"") or re.search(r"\d", t):
         return None
     words = re.findall(r"[A-Za-z']+", t.replace("'s", ""))
@@ -361,7 +372,11 @@ def _medium_line(text: str) -> str:
 
 
 def _read_medium(text: str) -> tuple:
-    """-> (the medium value or None, whether the line's first technique is one the list has no value for)."""
+    """-> (the medium value or None, whether the line's first technique is one the list has no value for). A line with a doubt
+    mark ('oil and tempera (?) on panel', 'Woodcut (?wood engraving matrix)') states no medium plainly: none, and no other field
+    is read for it."""
+    if re.search(r"\(\s*\?|\?\s*\)", text or ""):
+        return None, True
     t = _medium_line(text)
     first_clause = t.split(";")[0]
     for part in ([first_clause, t] if ";" in t else [t]):
@@ -385,8 +400,9 @@ def medium_of(text: str) -> str | None:
 
 
 def medium_blocked(text: str) -> bool:
-    """Whether a medium line's first technique is one the list has no value for ('engraving'): a source then reads no second
-    field for the medium (an engraving's 'ink' material does not make it an ink work)."""
+    """Whether a medium line's first technique is one the list has no value for ('engraving', 'oil and tempera') or the line is
+    marked doubtful ('(?)'): a source then reads no second field for the medium (an engraving's 'ink' material does not make it
+    an ink work)."""
     return _read_medium(text)[1]
 
 
@@ -398,12 +414,37 @@ NON_WESTERN = re.compile(
     r"african|yoruba|akan|asante|kongo|luba|dogon|bamana|senufo|baule|chokwe|kuba|songye|aztec|mexica|maya|mayan|inca|olmec|moche|"
     r"nasca|nazca|chimu|wari|paracas|mezcala|huastec|zapotec|mixtec|teotihuacan|chancay|navajo|native american|hawaii|hawaiian|"
     r"maori|polynesia|polynesian|melanesia|melanesian|micronesia|oceania|papua|peru|peruvian|mexico|mexican|mesoamerica|"
-    r"mesoamerican|andean|pre-columbian|precolumbian)\b", re.I)
+    r"mesoamerican|andean|pre-columbian|precolumbian|"
+    # the indigenous Americas ('Art of the Americas', 'Ancestral Pueblo', 'Honduras, Ulua Valley', 'Argentina, La Aguada')
+    r"americas|central america|south america|pueblo|ancestral pueblo|anasazi|mimbres|hohokam|mogollon|hopi|zuni|taino|caribbean|"
+    r"honduras|argentina|colombia|colombian|costa rica|panama|cocle|veraguas|diquis|tairona|quimbaya|muisca|calima|ecuador|"
+    r"bolivia|chile|guatemala|nicaragua|el salvador|belize|venezuela|nayarit|jalisco|colima|veracruz|toltec|tiwanaku|chavin|"
+    r"recuay|lambayeque|sican|cupisnique|valdivia|"
+    # the Islamic world by its dynasties and cities ('Mamluk', 'Old Cairo', 'Fustat')
+    r"cairo|fustat|fostat|mamluk|fatimid|ayyubid|seljuk|timurid|safavid|qajar|mughal)\b", re.I)
 NON_WESTERN_DEPTS = {"Asian Art", "Islamic Art", "Arts of Africa, Oceania, and the Americas", "Egyptian Art", "Ancient West Asian Art"}
+# the European era a source's own style term names ('medieval', 'Gothic', 'Mannerist')
+STYLE_ERA = re.compile(r"\b(medieval|middle ages|gothic|romanesque|byzantine|carolingian|ottonian|merovingian|renaissance|"
+                       r"mannerism|mannerist|baroque)\b", re.I)
+_ERA_OF = {"renaissance": "renaissance", "mannerism": "renaissance", "mannerist": "renaissance", "baroque": "baroque"}
+
+
+def era_agrees(period: str | None, styles) -> bool:
+    """Whether a European era name from the dates agrees with the eras the source's style terms name (a Basel tapestry of 1490
+    styled 'medieval' is not 'renaissance'); a style that names no era leaves the dates alone ('gothic revival' names none)."""
+    if period not in maps.EURO_ERAS:
+        return True
+    named = {_ERA_OF.get(m.group(1).lower(), "medieval") for s in styles
+             for m in STYLE_ERA.finditer(re.sub(r"\b(?:neo|revival|post|proto)\b[- ]?\w*|\w*[- ]revival\b", " ",
+                                                core.ascii_text(s or "").lower()))}
+    return not named or period in named
 
 
 def apply_subjects(spec: core.Spec, terms: list, domain: str, thing_from_tags: bool = True) -> dict:
-    """Records from subject terms (already normalized). -> {"genre": str|None, "people": bool, "thing": str|None}."""
+    """Records from subject terms (already normalized). -> {"genre": str|None, "people": bool, "thing": str|None}. On a design
+    object the terms name its decoration (a cup painted with men and flowers): no person, pose, scene or shot record, which would
+    read as a man standing beside the cup in a garden; the terms stay in the hint's 'Subjects:' line."""
+    figures = domain != "design"                       # the terms describe what the picture shows, not an object's decoration
     genders, ages, roles = [], [], []
     for t in terms:
         if t in PERSON:
@@ -424,21 +465,22 @@ def apply_subjects(spec: core.Spec, terms: list, domain: str, thing_from_tags: b
         age = None
     if age in ("elderly", "young adult") and gender in ("boy", "girl"):
         age = None
-    if gender:
+    if figures and gender:
         spec.set("person", "gender", gender)
-    elif not genders and people and ("human figures" in terms or "figures" in terms):
+    elif figures and not genders and people and ("human figures" in terms or "figures" in terms):
         spec.set("person", "gender", "person")
-    if age:
+    if figures and age:
         spec.set("person", "age", age)
-    if role:
+    if figures and role:
         spec.set("person", "role", role)
     for t in terms:
         if t in SCENE:
             s, a, v = SCENE[t]
             if s == "body" and not people:
                 continue
-            spec.set(s, a, v)
-        elif t in SETTING:
+            if figures or s == "form":                 # an object's decoration may still be abstract or symmetric
+                spec.set(s, a, v)
+        elif t in SETTING and figures:
             spec.set("scene", "setting", SETTING[t])
     thing = None
     if thing_from_tags:
@@ -465,12 +507,24 @@ OBJECT_COMPOUNDS = re.compile(r"\b(sword|hand|fire|knee|arm|neck|shin|leg|chest|
                               r"\bbook ?(case|end|plate|binding)s?\b|\bdancers? ?(mask|costume)s?\b|\bnurse(ry)? ?(chair|bottle)s?\b")
 
 
+# a time word inside a noun names no time of the scene ('The Morning Star', 'Evening Dress', 'Night Heron')
+TIME_COMPOUND = re.compile(r"\b(?:morning|evening|night|noon|midday|afternoon|midnight|dawn|dusk|sunset|sunrise|twilight)[- ]"
+                           r"(?:stars?|primroses?|glory|glories|dress(?:es)?|gowns?|coats?|jackets?|suits?|wear|caps?|shirts?|"
+                           r"prayers?|services?|papers?|news|mass|songs?|hymns?|bells?|meals?|tea|watch|stands?|tables?|lamps?|"
+                           r"lights?|herons?|moths?|hawks?|jars?|guns?|edition|room)\b")
+# a place an object came from or was made for names no scene ('Plaque, Probably from a Reliquary Shrine', 'Design for a Garden')
+PROVENANCE = re.compile(r"\b(?:(?:probably|possibly|perhaps)\s+)?(?:from|for)\s+(?:an?|the)\s+[a-z'-]+(?:\s+[a-z'-]+){0,2}")
+
+
 def title_records(spec: core.Spec, gtitle: str, domain: str) -> None:
     """Records a generic title gives: the person (gender, age, role), the pose, the setting, the time, the weather. An object's
-    title (a design object: 'sword guard', 'bookcase') names no person or pose, so for design only the setting, time, weather."""
-    t = OBJECT_COMPOUNDS.sub(" ", gtitle)
-    keys = ("scene setting", "scene time", "scene weather") if domain == "design" else (
-        "person gender", "person age", "person role", "scene setting", "scene time", "scene weather", "body pose")
+    title (a design object: 'sword guard', 'bookcase', 'temple hanging') names its use or origin, not a scene: no record for
+    design. A time word inside a noun ('the morning star') and a place the work came from ('from a shrine') give none."""
+    if domain == "design":
+        fix_person(spec)
+        return
+    t = PROVENANCE.sub(" ", TIME_COMPOUND.sub(" ", OBJECT_COMPOUNDS.sub(" ", gtitle)))
+    keys = ("person gender", "person age", "person role", "scene setting", "scene time", "scene weather", "body pose")
     second = re.search(r"\b(her|his|their)\b", t)       # 'laundress and her child': the child is a second figure
     for key in keys:
         if key == "person age" and second:
@@ -500,10 +554,27 @@ def fix_person(spec: core.Spec) -> None:
         spec.d.pop("person", None)
 
 
+def title_disagrees(spec: core.Spec, title: str) -> None:
+    """When the title's person words (any title, generic or not; of a sheet, the recto) name another gender than the person
+    system holds (tags 'girl', title 'Reclining Woman'; tags 'men', title 'Figurine of a Female (?) Seated Personage'): the gender
+    and the age go, and a role of the other gender, since they cannot all be true of one figure (a woman is never made a girl)."""
+    p = spec.d.get("person")
+    if not p or p.get("gender") not in ("man", "woman", "boy", "girl"):
+        return
+    said = set(maps.find(core.ascii_text(recto(title)).lower(), maps.GENDER))
+    if said and p["gender"] not in said:
+        p.pop("gender")
+        p.pop("age", None)
+        if p.get("role") in ROLE_GENDER and ROLE_GENDER[p["role"]] not in said:
+            p.pop("role")
+        if not p:
+            spec.d.pop("person", None)
+
+
 def fit(text: str, n: int) -> str:
     """Whole sentences of `text` within `n` bytes (after the core's ASCII fold, which is what the hint keeps)."""
     out = []
-    for sent in core._SENT.split(core.ascii_text(text or "")):
+    for sent in core.sentences(core.ascii_text(text or "")):
         if len(" ".join(out + [sent])) > n:
             break
         out.append(sent)
@@ -516,26 +587,67 @@ def subject_sentence(terms: list, limit: int = 12) -> str | None:
     return f"Subjects: {', '.join(words)}." if words else None
 
 
-def object_noun(name: str) -> tuple:
-    """A catalogue object name to (thing name, state): 'Kylix fragment' -> ('kylix', 'fragment'); a name with a capital past its
-    first word, or over the budget, gives (None, None)."""
+_NUM = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|some|each|any|\d+)"
+# words before 'of' that say how much of an object is shown ('Pair of Vases', 'Fragment of a Bowl', 'Three Lengths of Silk')
+_LEAD = r"(?:pairs?|sets?|groups?|fragments?|pieces?|parts?|sections?|samples?|lengths?|borders?|panels?)"
+# object names that hold 'of' ('Chest of Drawers' is a commode, not a chest)
+OF_COMPOUNDS = ("chest of drawers", "coat of arms", "suit of armor", "suit of armour", "book of hours")
+BODY_PARTS = {"arm", "arms", "leg", "legs", "hand", "hands", "foot", "feet", "head", "neck", "shoulder", "shoulders", "knee", "knees",
+              "shin", "shins", "thigh", "thighs", "elbow", "elbows", "chest", "back", "breast", "finger", "fingers", "wrist", "hip",
+              "hips", "face", "throat"}
+
+
+def _singular(t: str) -> str | None:
+    """The phrase with its last word singular by the regular endings ('shawls' -> 'shawl', 'boxes' -> 'box'); None when the ending
+    does not tell ('knives')."""
+    head, _, w = t.rpartition(" ")
+    if w.endswith("ies") and len(w) > 4:
+        w = w[:-3] + "y"
+    elif w.endswith(("ches", "shes", "sses", "xes", "zes")):
+        w = w[:-2]
+    elif w.endswith("ves"):
+        return None
+    elif w.endswith("s") and not w.endswith(("ss", "us", "is")):
+        w = w[:-1]
+    return f"{head} {w}".strip()
+
+
+def object_noun(name: str, armour: bool = False) -> tuple:
+    """A catalogue object name or a generic title to (thing name, state): 'Kylix fragment' -> ('kylix', 'fragment'), 'one of a
+    pair of shawls' -> ('shawl', None), 'chest of drawers' -> ('chest of drawers', None), 'six spoons' -> ('spoons', None); a name
+    with a capital past its first word, a number, a body part of an armour ('proper right arm' is an arm defence, `armour`) or
+    over the budget gives (None, ...)."""
     t = plain_phrase(name, 60)
     if not t:
         return None, None
+    t = t.lower()
     state = None
-    lead = re.match(r"^(?:a |an |the )?(pair|set|group|fragments?|piece|part|section|sample|length|border|panel) of (?:a |an |the )?",
-                    t.lower())
+    one = re.match(r"^(?:one|each|any)\s+of\s+", t)          # one object of a pair or a set
+    # articles, 'one of', and a count before a lead word ('Three Lengths of Woven Silk') go
+    t = re.sub(rf"^(?:(?:a|an|the)\s+|{_NUM}\s+of\s+|{_NUM}\s+(?={_LEAD}\s+of\b))+", "", t)
+    lead = re.match(rf"^({_LEAD})\s+of\s+(?:(?:a|an|the|{_NUM})\s+)*", t)
     if lead:
         if lead.group(1).startswith("fragment"):
             state = "fragment"
         t = t[lead.end():]
-    t = re.split(r"[,;]| with | of | from | for | in ", t.lower())[0].strip()
+    # the name ends before a phrase that tells what is on it or how it is made ('Dish Decorated with a Floral Pattern', 'Basin
+    # Depicting a Cistern'); a participle that is not followed by one stays a modifier ('Hand Painted Wall', 'Hand Carved Pelican')
+    t = next((c for c in OF_COMPOUNDS if t.startswith(c)), None) or re.split(
+        r"[,;]| with | of | from | for | in | (?=(?:depicting|showing|representing|bearing|featuring)\b)| (?=(?:decorated|painted|"
+        r"inlaid|carved|engraved|embroidered|inscribed|ornamented)(?:\s+(?:with|in|on|by|after|for)\b|$))", t)[0].strip()
     m = re.search(r"\b(fragments?|shards?|sherds?)\b", t)
     if m:
         state = "fragment"
         t = re.sub(r"\b(fragments?|shards?|sherds?)\b", "", t).strip()
     t = core.clean(t)
-    if not t or t in ("piece", "object", "sample", "item", "part", "element", "miscellaneous") or len(t) > 17:
+    num = re.match(rf"^({_NUM})\s+", t)
+    if num and (num.group(1) == "one" or (_singular(t) or t) != t):
+        t = t[num.end():]                     # 'six spoons': spoons; 'three leaf gaming table' is a compound and stays whole
+    if t and one:
+        t = _singular(t) or ""                                 # 'one of a pair of shawls': one shawl
+    if not t or t in ("piece", "pieces", "object", "objects", "sample", "samples", "item", "items", "part", "parts", "element",
+                      "miscellaneous", "length", "lengths", "pair", "set", "group", "section") or len(t) > 17 or \
+            re.fullmatch(rf"{_NUM}( {_NUM})*", t) or (armour and t.split()[-1] in BODY_PARTS):
         return None, state
     return t, state
 
@@ -554,7 +666,15 @@ CLASS_TEXTURE = {"textiles-woven": "woven", "textiles-tapestries": "woven", "tex
 BLUE_WHITE = re.compile(r"blue[- ]and[- ]white|underglaze (cobalt )?blue", re.I)
 COLOUR_METAL = {"gold": "gold", "silver": "silver"}
 COLS = ("Object ID", "Is Public Domain", "Department", "Object Name", "Title", "Culture", "Object Date", "Object Begin Date",
-        "Object End Date", "Medium", "Classification", "Tags")
+        "Object End Date", "Medium", "Classification", "Tags", "Artist Display Name", "Artist Alpha Sort")
+NAME_COLS = ("Artist Display Name", "Artist Alpha Sort")         # every constituent: artists, makers, sitters, subjects ('|' apart)
+CULTURE_WORDS = frozenset(w for c in CULTURES for w in c.split())
+
+
+def title_names(title: str, plain: set) -> set:
+    """The words of a title that are not plain words (`plain`) or culture words: the sitter or the place a title names
+    ('Portrait of George Washington' -> {'george', 'washington'}), held as a record's own name words."""
+    return core.name_tokens([title], CULTURE_WORDS) - plain
 
 
 def fetch(raw_dir: str) -> dict:
@@ -578,8 +698,9 @@ def domain_of(dept: str, cls: str, name: str, medium_text: str, medium: str | No
     return "design"
 
 
-def build(row: dict):
-    """One MetObjects row (the public-domain ones) to a seed, or None."""
+def build(row: dict, names: core.NameList | None = None):
+    """One MetObjects row (the public-domain ones) to a seed, or None. `names`: the source's name words (load); a hint part of a
+    catalogue field that holds one, or a word of this row's own artist and maker names, is left out ('Wedgwood plate')."""
     oid = row["Object ID"].strip()
     title, tags_raw, name = row["Title"], row["Tags"], row["Object Name"]
     if EXPLICIT.search(" ".join((title, tags_raw, name))):
@@ -611,6 +732,7 @@ def build(row: dict):
             s.set("thing", "colour", metal)
     if gtitle:                                           # a generic title names what is shown
         title_records(s, gtitle, domain)
+    title_disagrees(s, title)
     fix_person(s)
     if medium:
         s.set("form", "medium", medium)
@@ -629,14 +751,20 @@ def build(row: dict):
     if not genre:
         genre = {"photograph": "photograph", "painting": "painting", "illustration": "print" if "print" in cls.lower() else "drawing",
                  "sculpture": "sculpture"}.get(domain, domain)
+    own = core.NameList(core.name_tokens((v for c in NAME_COLS for v in (row.get(c) or "").split("|")), CULTURE_WORDS),
+                        names.plain if names is not None else TITLE_WORDS | CULTURE_WORDS)
+
+    def unnamed(phrase):                                 # a catalogue phrase without a maker's name ('Wedgwood plate': none)
+        return None if phrase and core.holds_name(phrase, names, own, opening=False) else phrase
+
     parts = []
-    obj = plain_phrase(name, 60)
-    med = plain_phrase(medium_text, 160)
+    obj = unnamed(plain_phrase(name, 60))
+    med = unnamed(plain_phrase(medium_text, 160))
     if obj and med:
         parts.append(f"{obj[0].upper() + obj[1:]}; {med}.")
     elif obj or med:
         parts.append(f"{(obj or med)[0].upper() + (obj or med)[1:]}.")
-    date = plain_phrase(row["Object Date"], 40)
+    date = unnamed(plain_phrase(row["Object Date"], 40))
     if date:
         parts.append(f"Made {date}.")
     cul = culture_ok(row["Culture"])
@@ -645,7 +773,7 @@ def build(row: dict):
     ss = subject_sentence(terms)
     if ss:
         parts.append(ss)
-    if gtitle:
+    if gtitle and not core.holds_name(gtitle, names, own, opening=False):
         parts.append(f'Title: "{gtitle}".')
     allow = (set(cul.split()) if cul else set()) | core.DATE_MARKS          # 'Made ca. 500 BCE.' holds no name
     hint = core.make_hint(core.drop_named(p, allow=allow) for p in parts)
@@ -653,22 +781,45 @@ def build(row: dict):
                           min_records=1 if len(hint) >= 100 else 2)
 
 
-def rows(raw_dir: str):
+PLAIN_FIELDS = ("Medium", "Object Name", "Title")
+PLAIN_MIN = 3
+
+
+def load(raw_dir: str) -> tuple:
+    """-> (the public-domain rows by Object ID, the source's NameList: the name words of every row's constituents, public
+    domain or not, beside the plain words of the catalogue: a word written in lower case at least PLAIN_MIN times in a medium,
+    an object name or a title of any row ('commercial', 'carpet', 'may'; a name is written capitalized there: 'Wedgwood',
+    'Chippendale'; core.plain_words). Titles are written in title case, so the prose test of core.corpus_vocab would leave
+    most catalogue words out.)"""
     path = os.path.join(raw_dir, DATASET, "MetObjects.csv")
     csv.field_size_limit(min(sys.maxsize, 2 ** 31 - 1))
+    table, values, low = {}, set(), Counter()
     with open(path, encoding="utf-8-sig", newline="") as fh:
         for r in csv.DictReader(fh):
+            for c in NAME_COLS:
+                values.update((r.get(c) or "").split("|"))
+            for c in PLAIN_FIELDS:
+                low.update(core.lower_words(r.get(c)))
             if r.get("Is Public Domain", "").strip() == "True":
-                yield {k: (r.get(k) or "") for k in COLS}
+                table[r["Object ID"]] = {k: (r.get(k) or "") for k in COLS}
+    plain = {w for w, n in low.items() if n >= PLAIN_MIN}
+    return table, core.NameList(core.name_tokens(values, CULTURE_WORDS), plain | TITLE_WORDS | CULTURE_WORDS)
+
+
+def rows(raw_dir: str):
+    yield from load(raw_dir)[0].values()
 
 
 def seeds(raw_dir: str, limit: int | None = None):
-    table = {r["Object ID"]: r for r in rows(raw_dir)}
+    """Seeds of the public-domain rows in a stable spread order; `limit`: at most that many (None: all, 0: none)."""
+    if limit is not None and limit <= 0:
+        return
+    table, names = load(raw_dir)
     n = 0
     for oid in stable_order(table):
-        seed = build(table[oid])
+        seed = build(table[oid], names)
         if seed:
             yield seed
             n += 1
-            if limit and n >= limit:
+            if limit is not None and n >= limit:
                 return
