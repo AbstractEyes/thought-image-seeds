@@ -40,6 +40,24 @@ def test_drawn_specs_pass_the_coherence_filter(tmp_path):
     from thought_seeds.rows import incoherent
     assert incoherent({"person": {"gender": "boy", "age": "20s"}}) == ["boy aged 20s"]
     assert incoherent({"scene": {"setting": "library", "weather": "fog"}})
+    # the classes the row writer reported at batches 004-007
+    macro = {"shot": {"framing": "macro"}, "relation": [{"a": "boy", "rel": "holding", "b": "suitcase"}]}
+    assert incoherent(macro) == ["macro framing of a relation between two things"]
+    assert incoherent({"shot": {"framing": "detail"}, "look": {"hair": "afro", "expression": "blush"}})
+    assert not incoherent({"shot": {"framing": "detail"}, "look": {"hair": "afro"}})
+    assert incoherent({"shot": {"light": "soft window"}, "scene": {"setting": "beach"}})
+    assert incoherent({"shot": {"light": "street lamp"}, "scene": {"setting": "stadium"}})
+    assert not incoherent({"shot": {"light": "street lamp"}, "scene": {"setting": "alley"}})
+    assert incoherent({"shot": {"light": "golden"}, "scene": {"setting": "subway"}})
+    assert incoherent({"form": {"compose": "horizon high"}, "scene": {"setting": "subway"}})
+    assert incoherent({"relation": [{"a": "book", "rel": "inside", "b": "window"}]})
+    from thought_seeds.rows import tighten
+    series = {"medium": {"shot": {"framing": "macro"}, "look": {"hair": "afro", "expression": "blush"},
+                         "relation": [{"a": "boy", "rel": "holding", "b": "cup"}]},
+              "simple": {"look": {"hair": "afro"}}}
+    t = tighten(series)
+    assert t["medium"] == {"shot": {"framing": "macro"}, "look": {"hair": "afro"}} and not incoherent(t["medium"])
+    assert t["simple"] == series["simple"] and series["medium"]["look"]["expression"] == "blush"     # the input is not changed
     path = draw(11, 40, 40, str(tmp_path), rng_seed=5)
     for line in open(path):
         it = json.loads(line)

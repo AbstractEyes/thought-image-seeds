@@ -39,6 +39,33 @@ YOUNG_AGES = {"child", "baby", "teen"}
 INDOOR = {"kitchen", "studio", "subway", "cathedral", "cafe", "library", "ballroom", "classroom", "greenhouse", "workshop",
           "laboratory", "temple", "hospital ward", "attic", "cave"}
 TIGHT_FRAMING = {"macro", "extreme close", "detail"}
+NO_SKY = {"subway", "cave"}                   # no sun, moon or horizon reaches them
+STREET_LIT = {"market street", "alley", "bridge", "bus stop", "harbour", "pier", "rooftop", "courtyard", "night market", "skate park"}
+SKY_LIGHTS = {"hard sun", "golden", "dappled", "moonlight"}
+FLAT_THINGS = {"window", "mirror", "painting", "poster", "flag", "map", "sign"}     # nothing is 'inside' them
+PERSON_DETAILS = (("look", "hair"), ("look", "expression"), ("look", "eyes"), ("wear", "clothing"), ("wear", "colour"),
+                  ("wear", "accessory"))
+TIGHT_DETAILS = {"extreme close": 3, "macro": 1, "detail": 1}      # an extreme close of a face shows hair, expression and eyes
+DEEP_MIN_DRAWN = 10       # a deep spec keeps 10 drawn records after tighten(); the writer's mood, intent and story reach the deep count
+
+
+def tighten(specs: dict) -> dict:
+    """A drawn series at a tight framing, made one picture: the relations go (a macro frame shows one small part, not two things in
+    a relation) and the person keeps only the details the framing can show (the first in PERSON_DETAILS order). The framing words
+    stay in the drawn rows instead of being redrawn away. -> the series' specs, changed only when the framing is tight."""
+    out = {}
+    for depth, spec in specs.items():
+        fr = spec.get("shot", {}).get("framing")
+        if fr not in TIGHT_FRAMING:
+            out[depth] = spec
+            continue
+        s = {k: dict(v) if isinstance(v, dict) else v for k, v in spec.items() if k != "relation"}
+        for sys_, attr in [k for k in PERSON_DETAILS if s.get(k[0], {}).get(k[1])][TIGHT_DETAILS[fr]:]:
+            del s[sys_][attr]
+            if not s[sys_]:
+                del s[sys_]
+        out[depth] = s
+    return out
 NOT_DRAWN_MEDIA: set = set()                # media the validator cannot pass (none since tools 0.1.1)
 
 
@@ -57,9 +84,28 @@ def incoherent(spec: dict) -> list:
         why.append("a two shot of one person")
     if fr in TIGHT_FRAMING and spec.get("body", {}).get("pose"):
         why.append(f"{fr} framing of a {spec['body']['pose']} pose")
+    rels = spec.get("relation") or []
+    if fr in TIGHT_FRAMING and rels:
+        why.append(f"{fr} framing of a relation between two things")          # a macro frame shows one small part
+    details = [k for k in PERSON_DETAILS if spec.get(k[0], {}).get(k[1])]
+    if fr in TIGHT_FRAMING and len(details) > TIGHT_DETAILS[fr]:
+        why.append(f"{fr} framing of {len(details)} details of a person")
     sc = spec.get("scene", {})
-    if sc.get("setting") in INDOOR and sc.get("weather") not in (None, "clear"):
-        why.append(f"{sc['weather']} inside a {sc['setting']}")
+    st = sc.get("setting")
+    if st in INDOOR and sc.get("weather") not in (None, "clear"):
+        why.append(f"{sc['weather']} inside a {st}")
+    light = spec.get("shot", {}).get("light")
+    if light == "soft window" and st and st not in INDOOR:
+        why.append(f"window light outdoors ({st})")
+    if light == "street lamp" and st and st not in STREET_LIT:
+        why.append(f"a street lamp at a {st}")
+    if st in NO_SKY and light in SKY_LIGHTS:
+        why.append(f"{light} light in a {st}")
+    if st in INDOOR and spec.get("form", {}).get("compose") in ("horizon high", "horizon low"):
+        why.append(f"a horizon inside a {st}")
+    for r in rels:
+        if r.get("rel") == "inside" and r.get("b") in FLAT_THINGS:
+            why.append(f"{r.get('a')} inside a {r['b']}")
     if spec.get("form", {}).get("medium") in NOT_DRAWN_MEDIA:
         why.append(f"medium {spec['form']['medium']}")
     return why
@@ -190,8 +236,9 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
                                                          "specs from it as subsets")
         else:
             for _ in range(400):
-                specs = tp.sample_series(rng, lists)
-                if (not incoherent(specs["deep"]) and not thin(specs["simple"], "simple") and not thin(specs["medium"], "medium")
+                specs = tighten(tp.sample_series(rng, lists))
+                if (not any(incoherent(s) for s in specs.values()) and not thin(specs["simple"], "simple")
+                        and not thin(specs["medium"], "medium") and tp.n_records(specs["deep"]) >= DEEP_MIN_DRAWN
                         and _medium_in_mix(specs["deep"], mix)):
                     break
             specs = {d: _tidy(s) for d, s in specs.items()}
@@ -210,8 +257,9 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
                         seed_id=seed["seed_id"], hint=seed.get("hint", ""), license=row_license(seed))
         else:
             for _ in range(400):
-                spec = tp.sample_spec(rng, depth, lists)
-                if not incoherent(spec) and not thin(spec, depth) and _medium_in_mix(spec, mix):
+                spec = tighten({depth: tp.sample_spec(rng, depth, lists)})[depth]
+                if (not incoherent(spec) and not thin(spec, depth) and _medium_in_mix(spec, mix)
+                        and (depth != "deep" or tp.n_records(spec) >= DEEP_MIN_DRAWN)):
                     break
             spec = _tidy(spec)
             item = dict(kind="single", series=f"s-{batch:03d}{n_series + j:02d}" if n_series + j < 100 else None,
