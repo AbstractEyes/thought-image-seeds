@@ -31,7 +31,7 @@ EXPRESSIONS = frozenset(("smile", "frown", "grin", "open mouth", "closed mouth",
                          "sweatdrop", "light smile", "evil smile", "grimace", "parted lips", "clenched teeth", "tongue out", "wide-eyed",
                          "crazy smile", "nervous smile", "seductive smile", "forced smile", "false smile", "one eye closed"))
 
-VERSION = "tools 0.1.0 (from trainer 0.1.64)"
+VERSION = "tools 0.1.1"
 REPO = "AbstractPhil/thought-symbolic-image-captions"
 DEPTHS = ("simple", "medium", "deep")
 DOMAINS = ("photograph", "painting", "illustration", "sculpture", "design")
@@ -73,7 +73,8 @@ def chain_slices(thoughts: list) -> int:
 def chain_room(depth: str) -> int:
     """About how many bytes of thought text the depth's frame holds in all (the slices' bodies less a record a thought)."""
     return CHAIN_MAX[depth] // SLICE * SLICE_ROOM - 12 * COUNTS[depth]["thoughts"][1]
-RULES = {1: "every claim is in the spec or is marked as an inference with its evidence; nothing refers to pixels or to seeing the file",
+RULES = {1: "every claim is in the spec or is marked as an inference with its evidence; nothing refers to pixels or to seeing the file "
+            "(the medium 'pixel art' is a medium, not a file)",
          2: "record values are plain lower-case words of at most 20 bytes under keys from the trie, key and value together at most 27 bytes; "
             "longer language lives in the thoughts and the wordings",
          3: "the depth sets the counts of records, thoughts and questions, and the thoughts fit the depth's thinking frame (simple 256, medium 512, "
@@ -83,7 +84,20 @@ RULES = {1: "every claim is in the spec or is marked as an inference with its ev
          6: "a mood names what it is read from: 'mood from' holds the key of the record that shows it (look expression, shot light, rel1 rel)",
          7: "a series shares its spec by subset: simple within medium within deep",
          8: "no real person's name, no copyrighted image described from memory: the spec is invented or comes from a licensed description"}
-BANNED = ("pixel", "the image file", "i can see", "as seen in the image", "in this photo i", "looking at the image", "the jpeg", "the png")
+BANNED = ("pixel", "pixels", "the image file", "i can see", "as seen in the image", "in this photo i", "looking at the image", "the jpeg",
+          "the png")
+ALLOWED_PHRASES = ("pixel art",)                 # closed-list values that hold a banned word: the medium is a medium, not a file
+_BANNED_RE = re.compile(r"\b(" + "|".join(re.escape(b) for b in BANNED) + r")\b")
+
+
+def speaks_of_the_file(text: str) -> str | None:
+    """Rule 1's phrase check: the first banned phrase found as whole words ('in this photo is' and 'pixelated' pass), after the
+    allowed phrases are removed; None when the text is clean."""
+    t = str(text).lower()
+    for a in ALLOWED_PHRASES:
+        t = t.replace(a, " ")
+    m = _BANNED_RE.search(t)
+    return m.group(1) if m else None
 
 # ------------------------------------------------------------------ the closed vocabulary (a tenth of every list is sealed as held-out)
 def _union(base, more) -> list:
@@ -253,49 +267,235 @@ NOT_A_HUE = {"gradient", "colored", "two-tone", "streaked", "multicolored", "het
 NOT_SAMPLED = {"age": {"baby"}}                                                   # values the sampler leaves to the model (a baby posed and dressed reads wrong)
 
 
+# THE SAMPLER'S SENSE OF PLACE, TIME AND SIZE (tools 0.1.1): coherence by construction, after a coherence pass on the first drawn batch
+# (2026-10-19) found gender words with the wrong ages, weather indoors, a two shot of one person, a fish stall in a stadium and a boy inside
+# a flower. FILL's order makes the earlier facts known when a later one is drawn; an attribute with no coherent value in the split's list is
+# skipped and the next attribute fills the count.
+INDOOR = {"kitchen", "studio", "subway", "cathedral", "cafe", "library", "ballroom", "classroom", "greenhouse", "workshop", "laboratory",
+          "temple", "hospital ward", "attic", "cave"}
+WILD = {"forest", "desert", "mountain pass", "snowfield", "meadow", "cliff", "swamp", "cave", "river bank"}               # nothing built
+WATER = {"harbour", "beach", "river bank", "pier", "lighthouse", "swamp"}
+INDOOR_WEATHER = {"rain", "snow", "clear", "overcast", "storm", "drizzle", "sleet"}                                        # seen through a window
+WEATHER_NOT = {"desert": {"snow", "sleet", "frost"}, "snowfield": {"heat shimmer"}, "cave": set(VOCAB["weather"])}
+DULL = {"overcast", "rain", "storm", "fog", "snow", "drizzle", "sleet", "haze"}                                            # no sun in these
+SUNNY = {"hard sun", "dappled", "golden"}
+NIGHT = {"night", "midnight", "late evening"}
+LIGHT_TIME = {"hard sun": {"morning", "noon", "afternoon"}, "dappled": {"morning", "noon", "afternoon", "golden hour"},
+              "golden": {"dawn", "morning", "afternoon", "golden hour", "dusk"}, "moonlight": NIGHT | {"blue hour"},
+              "overcast": set(VOCAB["time"]) - NIGHT, "street lamp": NIGHT | {"dawn", "dusk", "blue hour"}}
+YOUNG, ADULT = {"child", "teen"}, {"young adult", "20s", "30s", "40s", "50s", "60s", "elderly"}
+AGE_OF = {"girl": YOUNG, "boy": YOUNG, "woman": ADULT, "man": ADULT}                                                       # person, nonbinary: any
+SUBJECT = {"nonbinary": "person"}                                                                                          # a relation's a end is a noun
+SIZE = {**{t: 1 for t in ("umbrella", "lantern", "cat", "book", "cup", "flag", "bottle", "flower", "clock", "bird", "rope", "basket", "kite",
+                           "drum", "violin", "sword", "candle", "suitcase", "camera")},
+        **{t: 2 for t in ("bicycle", "window", "mirror", "dog", "chair", "table", "lamp", "door", "bench", "sign", "ladder")},
+        **{t: 3 for t in ("fish stall", "horse", "boat", "car", "tree", "fence", "wall", "statue", "fountain", "train")}}
+ENTERABLE = {"boat", "car", "train", "fish stall", "fountain"}
+OVERHEAD = {"umbrella", "tree", "lamp", "sign", "window", "ladder", "clock", "flag", "lantern", "kite", "bird", "rope", "statue", "table",
+            "fountain"}
+STURDY = {"wall", "fence", "tree", "door", "table", "car", "bicycle", "statue", "fountain", "ladder", "chair", "bench", "sign", "lamp", "train",
+          "boat", "horse"}
+REFLECTIVE = {"mirror", "window", "fountain"}
+ANIMATE = {"dog", "cat", "horse", "bird", "statue"}
+LEANERS = {"bicycle", "ladder", "umbrella", "sword", "violin", "mirror", "sign", "suitcase", "basket", "flag", "drum", "book", "chair", "rope",
+           "camera", "kite", "lantern"}
+CONTAINS = {"basket": {"cat", "flower", "book", "bottle", "cup", "candle", "rope", "camera", "bird"},
+            "suitcase": {"book", "bottle", "cup", "candle", "rope", "camera", "clock", "violin", "sword", "flag", "cat"},
+            "cup": {"flower", "candle"}, "bottle": {"flower", "candle"},
+            "window": {"flower", "candle", "lamp", "cat", "book", "sign", "clock", "lantern"},
+            "boat": {t for t, s in SIZE.items() if s <= 2} | {"horse"}, "train": {t for t, s in SIZE.items() if s <= 2} | {"horse", "bicycle"},
+            "car": {t for t, s in SIZE.items() if s == 1} | {"dog"}, "fountain": {t for t, s in SIZE.items() if s == 1} | {"dog"},
+            "fish stall": {t for t, s in SIZE.items() if s <= 2} - {"door", "window"}}
+# where a thing belongs: ("in", the settings it is drawn in) or ("not", the settings it is never drawn in); a thing not listed goes anywhere
+PLACES = {"fish stall": ("in", {"market street", "night market", "harbour", "pier", "beach", "alley", "courtyard", "bus stop"}),
+          "boat": ("in", WATER),
+          "train": ("in", {"subway", "bridge", "snowfield", "desert", "mountain pass", "meadow", "river bank", "harbour", "farm", "vineyard"}),
+          "horse": ("not", INDOOR | {"rooftop", "skate park", "pier", "lighthouse", "bus stop"}),
+          "fountain": ("in", {"courtyard", "garden", "market street", "ruins", "night market", "temple", "vineyard", "cathedral", "greenhouse",
+                              "ballroom"}),
+          "statue": ("not", WILD | WATER | {"subway", "skate park", "bus stop", "hospital ward", "kitchen", "laboratory", "classroom", "farm",
+                                            "rooftop"}),
+          "kite": ("not", INDOOR | {"alley", "market street", "night market", "bus stop", "ruins", "forest", "swamp", "lighthouse", "courtyard",
+                                    "vineyard"}),
+          "bicycle": ("not", (INDOOR - {"workshop", "attic", "subway", "studio", "greenhouse"}) | {"cave", "swamp", "cliff"}),
+          "car": ("not", INDOOR | {"swamp", "cave", "cliff", "forest", "garden", "ruins", "stadium"}),
+          "fence": ("not", INDOOR | {"cave", "rooftop", "bridge", "pier"}),
+          "tree": ("not", (INDOOR - {"greenhouse"}) | {"rooftop", "pier", "bridge", "skate park", "stadium", "lighthouse", "harbour", "bus stop"}),
+          "window": ("not", WILD | {"beach", "bridge", "skate park", "pier", "harbour"}),
+          "door": ("not", WILD | {"beach", "bridge", "skate park", "pier", "harbour"}),
+          "mirror": ("not", WILD | {"beach", "bridge", "skate park", "pier", "harbour"}),
+          "lamp": ("not", WILD | {"beach"}), "clock": ("not", WILD | {"beach"}),
+          "chair": ("not", {"desert", "mountain pass", "snowfield", "cliff", "swamp", "cave"}),
+          "table": ("not", {"desert", "mountain pass", "snowfield", "cliff", "swamp", "cave"}),
+          "bench": ("not", {"cave", "swamp"}),
+          "ladder": ("not", {"desert", "mountain pass", "snowfield", "meadow", "cliff", "swamp", "river bank", "beach"}),
+          "sign": ("not", {"desert", "snowfield", "meadow", "cliff", "swamp", "cave"}),
+          "wall": ("not", {"snowfield", "meadow", "cliff", "swamp", "beach", "forest", "river bank", "mountain pass"})}
+
+
+def in_place(thing: str, setting: str | None) -> bool:
+    """Whether the sampler draws `thing` in `setting` (PLACES; a thing not listed, or no setting yet: yes)."""
+    rule = PLACES.get(thing)
+    if rule is None or setting is None:
+        return True
+    return (setting in rule[1]) if rule[0] == "in" else (setting not in rule[1])
+
+
+def coherent(key: str, val: str, spec: dict) -> bool:
+    """The sampler's coherence of a value with the facts drawn before it: the age with the gender word, the weather with the setting and
+    the light, the light with the time of day, the thing with the setting."""
+    person, scene, shot = spec.get("person", {}), spec.get("scene", {}), spec.get("shot", {})
+    setting, time, light = scene.get("setting"), scene.get("time"), shot.get("light")
+    if key == "person age":
+        need = AGE_OF.get(person.get("gender"))
+        return need is None or val in need
+    if key == "scene weather":
+        if setting in INDOOR and val not in INDOOR_WEATHER:
+            return False
+        if val in WEATHER_NOT.get(setting, ()):
+            return False
+        if light in SUNNY and val in DULL:
+            return False
+        return light != "overcast" or val in DULL
+    if key == "shot light":
+        need = LIGHT_TIME.get(val)
+        return need is None or time is None or time in need
+    if key == "thing name":
+        return in_place(val, setting)
+    return True
+
+
+def rel_ok(rel: str, b: str, spec: dict) -> bool:
+    """Whether the person of `spec` can stand in `rel` to the thing `b`: inside an enterable thing, under or below an overhead one,
+    leaning on a sturdy one, reflected in a reflective one, holding a hand-sized one, larger or smaller by the size classes, the same
+    colour only when the spec does not say otherwise."""
+    s = SIZE.get(b, 2)
+    if rel == "inside":
+        return b in ENTERABLE
+    if rel in ("under", "below"):
+        return b in OVERHEAD
+    if rel == "leaning on":
+        return b in STURDY
+    if rel == "reflected in":
+        return b in REFLECTIVE
+    if rel in ("holding", "larger than"):
+        return s == 1
+    if rel == "above":
+        return s <= 2
+    if rel == "smaller than":
+        return s == 3 and b != "fence"
+    if rel == "same colour as":
+        wear, thing = spec.get("wear", {}).get("colour"), spec.get("thing", {})
+        return wear is None or thing.get("colour") is None or wear == thing["colour"] or b != thing.get("name")
+    return True
+
+
+def thing_rel_ok(rel: str, b: str, c: str) -> bool:
+    """Whether the thing `b` can stand in `rel` to the thing `c`: the size classes, the containers, the overhead and sturdy things, the
+    animate ones look, a statue holds."""
+    if b == c:
+        return False
+    sb, sc = SIZE.get(b, 2), SIZE.get(c, 2)
+    if rel == "holding":
+        return b == "statue" and sc == 1
+    if rel in ("facing", "looking at"):
+        return b in ANIMATE
+    if rel == "larger than":
+        return sb > sc
+    if rel == "smaller than":
+        return sb < sc
+    if rel == "inside":
+        return b in CONTAINS.get(c, ())
+    if rel == "under":
+        return c in OVERHEAD | {"chair", "bench", "car", "fish stall"} and sb <= sc and (sb < 3 or c in OVERHEAD)
+    if rel == "leaning on":
+        return b in LEANERS and c in STURDY - {"horse"} and sb <= sc
+    if rel == "reflected in":
+        return c in REFLECTIVE
+    if rel == "above":
+        return b in OVERHEAD or sb <= sc
+    if rel == "below":
+        return c in OVERHEAD or sb <= sc
+    return True
+
+
+def _choices(key: str, lists: dict, hues: list, things: list) -> list:
+    """The values a key is drawn from in this split (NOT_SAMPLED removed)."""
+    if key == "thing name":
+        return list(things)
+    if key == "thing position":
+        return ["left", "right", "centre", "foreground", "background"]
+    if key in ("wear colour", "thing colour", "look eyes"):
+        return list(hues)
+    name = KEY_LIST[key] if key in KEY_LIST else "colour"
+    return [v for v in lists[name] if v not in NOT_SAMPLED.get(name, ())]
+
+
+def _pick(rng, pairs: list, order: list) -> tuple:
+    """A (relation, thing) pair: the relation uniform over the relations with a partner, the partner uniform under it."""
+    rs = sorted({r for r, _ in pairs}, key=order.index)
+    rel = rs[int(rng.integers(len(rs)))]
+    ts = [t for r, t in pairs if r == rel]
+    return rel, ts[int(rng.integers(len(ts)))]
+
+
 def sample_spec(rng, depth: str, lists: dict | None = None) -> dict:
-    """A hidden image's FACTS drawn from the lists (consistent by construction: the colour of the clothing is one colour, the thing
-    has a name before a colour, a relation joins the person and the thing). The interpretive systems (mood with its evidence, intent,
-    story) are the generating model's to add. lists: the training lists (lists_for(held, 'train')) or the held lists."""
+    """A hidden image's FACTS drawn from the lists, coherent by construction: the colour of the clothing is one colour, the thing has a
+    name before a colour and belongs in the setting, the age fits the gender word, the weather fits the setting and the light, the light
+    fits the time of day, a two shot counts two, a relation joins the person and a thing it can stand in that relation to, and a second
+    relation joins that thing to one it can. The interpretive systems (mood with its evidence, intent, story) are the generating
+    model's to add. lists: the training lists (lists_for(held, 'train')) or the held lists."""
     lists = lists or lists_for(seal(), "train")
     lo, hi = SAMPLE_RECORDS[depth]
     n = int(rng.integers(lo, hi + 1))                        # the records in all: attributes + the count + the relations
     k_rel = SAMPLE_RELATIONS[depth]
     with_count = depth != "simple"
     n_attrs = n - k_rel - (1 if with_count else 0)
-    things = lists["thing"]
+    things = list(lists["thing"])
     hues = [c for c in lists["colour"] if c not in NOT_A_HUE]
-    spec = {}
-    for system, attr in FILL[:n_attrs]:
+    spec, drawn = {}, 0
+    for system, attr in FILL:
+        if drawn >= n_attrs:
+            break
         key = f"{system} {attr}"
-        if key == "thing name":
-            val = things[int(rng.integers(len(things)))]
-        elif key == "form palette":
-            for _ in range(40):
+        if key == "form palette":
+            val = None
+            for _ in range(40 if len(hues) >= 2 else 0):
                 i, j = rng.choice(len(hues), size=2, replace=False)
-                val = f"{hues[i]} and {hues[j]}"
-                if len(val) <= min(VAL_MAX, REC_MAX - len(key)):
+                cand = f"{hues[i]} and {hues[j]}"
+                if len(cand) <= min(VAL_MAX, REC_MAX - len(key)):
+                    val = cand
                     break
-        elif key == "thing position":
-            val = ("left", "right", "centre", "foreground", "background")[int(rng.integers(5))]
-        elif key in ("wear colour", "thing colour", "look eyes"):
-            val = hues[int(rng.integers(len(hues)))]
+            if val is None:
+                continue
         else:
-            name = KEY_LIST[key] if key in KEY_LIST else "colour"
-            lst = [v for v in lists[name] if v not in NOT_SAMPLED.get(name, ())]
-            val = lst[int(rng.integers(len(lst)))]
+            ok = [v for v in _choices(key, lists, hues, things) if coherent(key, v, spec)]
+            if not ok:
+                continue                                     # nothing coherent in this split's list: the next attribute fills the count
+            val = ok[int(rng.integers(len(ok)))]
         spec.setdefault(system, {})[attr] = val
+        drawn += 1
     if with_count:
-        spec.setdefault("person", {})["count"] = "1"
-    rels = []
+        spec.setdefault("person", {})["count"] = "2" if spec.get("shot", {}).get("framing") == "two shot" else "1"
     a = spec.get("person", {}).get("gender", "figure")
-    b = spec.get("thing", {}).get("name") or things[int(rng.integers(len(things)))]
-    for _ in range(k_rel):
-        rel = lists["relation"][int(rng.integers(len(lists["relation"])))]
-        if not rels:
+    a = SUBJECT.get(a, a)
+    setting = spec.get("scene", {}).get("setting")
+    placed = [t for t in things if in_place(t, setting)] or things
+    order = list(lists["relation"])
+    rels, b = [], None
+    for i in range(k_rel):
+        if i == 0:
+            named = spec.get("thing", {}).get("name")
+            pairs = [(r, t) for r in order for t in ([named] if named else placed) if rel_ok(r, t, spec)]
+            if not pairs:                                    # a split whose relations none of the things fit: the nearest pairs
+                pairs = [(r, named or placed[0]) for r in order]
+            rel, b = _pick(rng, pairs, order)
             rels.append({"a": a, "rel": rel, "b": b})
         else:
-            c = things[int(rng.integers(len(things)))]
+            pairs = [(r, c) for r in order for c in placed if thing_rel_ok(r, b, c)]
+            if not pairs:
+                pairs = [(r, c) for r in order for c in placed if c != b] or [(order[0], placed[0])]
+            rel, c = _pick(rng, pairs, order)
             rels.append({"a": b, "rel": rel, "b": c})
     if rels:
         spec["relation"] = rels
@@ -436,8 +636,8 @@ def validate_seed(seed: dict, held: dict | None = None) -> list:
             p.append((0, "hint is not text"))
         elif len(hint.encode("utf-8")) > HINT_MAX:
             p.append((0, f"hint is {len(hint.encode('utf-8'))} bytes, over {HINT_MAX}"))
-        elif any(b in hint.lower() for b in BANNED):
-            p.append((1, "the hint speaks of the image as seen"))
+        elif speaks_of_the_file(hint):
+            p.append((1, f"the hint speaks of the image as seen: {speaks_of_the_file(hint)!r}"))
     src = seed["source"]
     if not isinstance(src, dict) or not all(src.get(k) for k in ("dataset", "id", "license")):
         p.append((8, "source needs dataset, id and license"))
@@ -517,11 +717,11 @@ def validate(row: dict, held: dict | None = None) -> list:
             p.append((1, f"thought step {t.get('step')!r} is not one of {STEPS}"))
         if not str(t.get("text", "")).strip():
             p.append((1, "a thought without text"))
-    # rule 1: no pixels, no seeing the file
+    # rule 1: no pixels, no seeing the file (whole words; the medium 'pixel art' is allowed)
     words = " ".join([text_all] + [str(v) for v in row["wordings"].values()]).lower()
-    for b in BANNED:
-        if b in words:
-            p.append((1, f"the text speaks of the image as seen: {b!r}"))
+    seen = speaks_of_the_file(words)
+    if seen:
+        p.append((1, f"the text speaks of the image as seen: {seen!r}"))
     # rule 4: the questions
     recmap = {}
     for k, v in recs:

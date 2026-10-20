@@ -39,7 +39,7 @@ YOUNG_AGES = {"child", "baby", "teen"}
 INDOOR = {"kitchen", "studio", "subway", "cathedral", "cafe", "library", "ballroom", "classroom", "greenhouse", "workshop",
           "laboratory", "temple", "hospital ward", "attic", "cave"}
 TIGHT_FRAMING = {"macro", "extreme close", "detail"}
-NOT_DRAWN_MEDIA = {"pixel art"}             # the validator's banned substring "pixel" rejects this medium's rows (reported upstream)
+NOT_DRAWN_MEDIA: set = set()                # media the validator cannot pass (none since tools 0.1.1)
 
 
 def incoherent(spec: dict) -> list:
