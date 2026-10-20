@@ -101,7 +101,27 @@ def main(argv=None) -> int:
         docs(args["docs"])
         print(f"LICENSES.md, CITATIONS.bib, seeds/README.md written under {args['docs']}")
         return 0
-    names = available() if args.get("sources", "all") == "all" else args["sources"].split(",")
+    if "draw" in args:
+        from .rows import draw
+        path = draw(int(args["draw"]), int(args.get("series", 10)), int(args.get("singles", 0)), args["rows-dir"],
+                    int(args["rng"]) if "rng" in args else None, args["seeds"].split(",") if "seeds" in args else None)
+        print(f"specs written: {path}")
+        return 0
+    if "check-rows" in args:
+        from .rows import check_rows
+        rep = check_rows(args["check-rows"], args.get("specs"))
+        out = args["check-rows"].replace(".rows.jsonl", "") + ".check.json"
+        with open(out, "w", encoding="utf-8") as fh:
+            json.dump(rep, fh, indent=1)
+        print(f"{rep['rows']} rows, {rep['unparsed']} unparsed, {rep['rows_with_problems']} with problems; by rule {rep['by_rule']}; "
+              f"{len(rep['warnings'])} name warnings; depths {rep['by_depth']}; domains {rep['by_domain']}")
+        for p in rep["problems"][:60]:
+            print("  PROBLEM", *p)
+        for w in rep["warnings"][:30]:
+            print("  REVIEW ", *w)
+        print(f"the full report: {out}")
+        return 0 if not rep["problems"] and not rep["unparsed"] else 1
+    names =available() if args.get("sources", "all") == "all" else args["sources"].split(",")
     print(f"thought_seeds {sys.modules['thought_seeds'].__version__}; thought_pack {core.tp.VERSION}; sources {names}; "
           f"priority {_lower_priority(float(args.get('gb', 16)))}", flush=True)
     res = run(names, args["raw"], args["out"], int(args["limit"]) if "limit" in args else None, args.get("fetch") == "1")
