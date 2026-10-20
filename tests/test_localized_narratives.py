@@ -105,6 +105,17 @@ def test_a_material_is_not_a_place():
     assert ln.facts("A man is walking in the woods with a dog.", False)[("scene", "setting")] == "forest"
 
 
+def test_a_still_life_holds_no_people_and_an_interior_is_indoors():
+    s = ln.build(4243, ["A man is standing on the road and holding a bottle. In the background there are trees and the sky."])
+    assert s["spec"]["thing"]["name"] == "bottle" and "person" in s["spec"] and s["genre"] == "people"
+    s = ln.build(4244, ["In this picture we can see a chair on the grass. In the background there are trees and the sky."])
+    assert s["spec"]["thing"]["name"] == "chair" and s["genre"] == "scene"
+    s = ln.build(4245, ["In this picture we can see a chair in a room. Outside the window there are trees."])
+    assert s["spec"]["thing"]["name"] == "chair" and s["genre"] == "interior"              # a view through the window
+    s = ln.build(4246, ["In this picture we can see a bottle and a cup on a table."])
+    assert s["genre"] == "still life"
+
+
 def test_the_hint_agrees_with_the_chosen_facts():
     narr = ["A woman is standing on the beach and holding a surfboard.",
             "A woman holding a surfboard on the sand near the ocean.",

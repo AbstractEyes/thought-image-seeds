@@ -464,7 +464,9 @@ NAME_GENRE = {"building": "architecture", "house": "architecture", "tower": "arc
               "graffiti": "street", "mural": "street", "helicopter": "vehicle", "fire truck": "vehicle"}
 
 
-def _genre(spec: dict, cat: str, food: bool) -> str:
+def _genre(spec: dict, cat: str, food: bool, outdoors: bool = False) -> str:
+    """The seed's genre by its main object; a still life holds no people and an interior is indoors (`outdoors`: the narrations
+    place the picture outside, coco._outdoors)."""
     name = spec.get("thing", {}).get("name")
     has_people = "person" in spec
     if cat:
@@ -476,9 +478,11 @@ def _genre(spec: dict, cat: str, food: bool) -> str:
         if SUPER.get(cat) == "sports" and has_people:
             return "sport"
         if SUPER.get(cat) == "kitchen" and not food:
-            return "still life"
-        if SUPER.get(cat) == "indoor" and has_people:
-            return "interior"
+            g = "still life"
+        elif SUPER.get(cat) == "indoor" and has_people:
+            g = "interior"
+        if (g == "still life" and has_people) or (g == "interior" and outdoors):
+            return "people" if has_people else "scene"
         return g
     if name:
         return NAME_GENRE.get(name, "people" if has_people else "scene")
@@ -533,7 +537,8 @@ def build(image_id, narrations: list) -> dict | None:
     clash = [sum(1 for k, v in chosen.items() if k in f and f[k] != v) for f in fs]
     longest = max((n for n, c in zip(narrations, clash) if c == min(clash)), key=len)
     hint = core.make_hint(_sentences(core.drop_named(C.unshout(plain_narration(longest)))))
-    genre = _genre(sp.spec(), cat, any(f.get("_food") for f in fs))
+    sentences = [s.lower() for n in narrations for s in _sentences(plain_narration(n))]
+    genre = _genre(sp.spec(), cat, any(f.get("_food") for f in fs), C._outdoors(sentences, min_votes=1))
     seed = core.make_seed(DATASET, sid, "photograph", genre, sp, hint, LICENSE, EXPLORE.format(sid), group=f"coco-image:{sid}")
     if seed is None:
         STATS["empty or failed check"] += 1

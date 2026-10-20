@@ -230,6 +230,33 @@ WILD = {"elephant", "bear", "zebra", "giraffe"}
 STREET_WORDS = _pat(("street", "streets", "road", "intersection", "sidewalk", "downtown", "traffic", "crosswalk"))
 CITY_WORDS = _pat(("city", "skyline", "skyscraper", "skyscrapers", "buildings", "cityscape", "downtown"))
 LAND_WORDS = _pat(("landscape", "field", "mountain", "mountains", "hill", "hills", "ocean", "lake", "sky", "valley", "countryside"))
+# indoors or out: an interior is indoors ('a row of broken toilets in a field' is not one); a view through a window, a picture on a
+# wall or a screen, and a lawn chair say nothing of where the picture was taken
+OUTDOOR_WORDS = _pat(("outside", "outdoors", "outdoor", "field", "grass", "grassy", "lawn", "yard", "backyard", "beach", "dirt", "street",
+                      "streets", "sidewalk", "park", "forest", "woods", "snow", "parking lot", "road", "sky", "trees"))
+INDOOR_WORDS = _pat(("kitchen", "bedroom", "bathroom", "living room", "dining room", "room", "office", "inside", "indoors", "indoor",
+                     "ceiling", "hallway", "classroom", "hotel room"))
+VIEWED = re.compile(r"(?<![a-z])(?:window|windows|glass|mirror|mirrors|reflection|reflections|view|views|overlooking|"
+                    r"through (?:this|it|which))(?![a-z])")
+SHOWN = re.compile(r"(?<![a-z])(?:poster|posters|painting|paintings|frame|frames|screen|screens|television|tv|monitor|banner|"
+                   r"banners|wallpaper|mural|murals)(?![a-z])[^.;]*")
+LAWN_CHAIR = re.compile(r"(?<![a-z])lawn chairs?(?![a-z])")
+# ('a picture of', 'a photo of' open many captions and name the photograph itself: they stay)
+
+
+def _place_words(text: str) -> tuple:
+    """(outdoor words said, a room named) in one caption or narration sentence: what a poster, frame or screen shows is taken out
+    to the sentence's end, a lawn chair is a chair, and a sentence with a window, glass, a mirror or a view in it is no evidence of
+    the outdoors ('through the glass window, trees')."""
+    t = LAWN_CHAIR.sub(" ", SHOWN.sub(" ", text))
+    return bool(OUTDOOR_WORDS.search(t)) and not VIEWED.search(t), bool(INDOOR_WORDS.search(t))
+
+
+def _outdoors(texts: list, min_votes: int = 2) -> bool:
+    """At least `min_votes` texts place the picture outdoors, and more of them than name a room."""
+    said = [_place_words(t) for t in texts]
+    out_n, in_n = sum(o for o, _ in said), sum(i for _, i in said)
+    return out_n >= min_votes and out_n > in_n
 
 PERSON_WORDS = _words(
     "man|men|woman|women|person|people|persons|boy|boys|girl|girls|child|children|kid|kids|baby|babies|toddler|toddlers|infant|"
@@ -698,6 +725,18 @@ def _sealed_name(name: str) -> bool:
     return bool(core.tp.sealed_used([("thing name", name)], core.HELD))
 
 
+def _sealed_said() -> list:
+    """(name, pattern) of every sealed thing: a COCO category's own caption words, else the noun and its plural."""
+    out = []
+    for n in sorted(core.HELD.get("thing", [])):
+        cat = next((k for k, v in CATS.items() if v[0] == n), None)
+        out.append((n, _pat(_words(CATS[cat][1]) if cat else (n, n + "s"))))
+    return out
+
+
+SEALED_SAID = _sealed_said()
+
+
 def build(image_id, width: float, height: float, anns: list, captions: list, cat_names: dict, cat_super: dict) -> dict | None:
     """The seed of one image. anns: [(category_id, x, y, w, h, iscrowd)] in pixels; captions: the image's captions."""
     caps = [_Cap(t) for t in captions if t and t.strip()]
@@ -789,11 +828,20 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
         cands.append((mentions, g["area"], cat, name))
     cands.sort(key=lambda t: (-t[0], -t[1], t[2]))
     names = {cat: name for _, _, cat, name in cands}
-    main = None
+    said_name = _vote([{v for _, _, v in CAPTION_THINGS_M.iter(c.t)} for c in caps], min_votes=3)   # a noun three captions agree on
+    # a sealed thing three captions agree on is the subject even when no box holds it ('a man riding his bicycle down a street')
+    main, sealed_subject = None, not may_hold and bool(_vote([{n for n, p in SEALED_SAID if p.search(c.t)} for c in caps],
+                                                              min_votes=3))
     for mentions, area, cat, name in cands:
         if not may_hold and _sealed_name(name):
+            sealed_subject = sealed_subject or mentions >= 1        # the captions' subject is sealed outside the held tenth
             continue
-        if mentions >= 1 or area >= 0.05:
+        # a large box no caption names stands in for the subject only when the captions name nothing else: a sealed subject left
+        # out above is not replaced by its background ('a blue bike parked on a sidewalk' never becomes three trucks), and a noun
+        # three captions agree on is the subject before a box none of them names (two hospital beds under 'a room with two windows')
+        # (an orange: its own word 'an orange' is not counted as its mention, being a colour, so the captions' other noun says
+        # nothing against it: 'a ripe orange growing on a tree' stays the orange's picture)
+        if mentions >= 1 or (area >= 0.05 and not sealed_subject and (not said_name or cat == "orange")):
             main = cat
         break
     if main:
@@ -824,8 +872,7 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
             sp.set("thing", "state", st)
     else:
         # no category qualifies as the subject: the noun at least three captions name, its number when they agree on one
-        votes = [{v for _, _, v in CAPTION_THINGS_M.iter(c.t)} for c in caps]
-        name = _vote(votes, min_votes=3)
+        name = said_name
         if name and (may_hold or not _sealed_name(name)):
             sp.set("thing", "name", name)
             nv = []
@@ -960,6 +1007,10 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
             rv = [s - {v} for s in rv]
 
     # --- the genre and the hint
+    def people_genre():
+        big = max((b[2] - b[0]) * (b[3] - b[1]) for b in (P["boxes"] or P.get("crowd_boxes", [])))
+        return "portrait" if n_people <= 2 and big >= 0.2 else "people"
+
     if main:
         sup = cat_super.get(main, "")
         genre = GENRE.get(sup, "scene")
@@ -976,13 +1027,23 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
             genre = "still life"
         elif sup == "indoor" and has_people:
             genre = "interior"
+        # a still life holds no people and an interior is indoors: otherwise the people or the place decide ('people walking past
+        # a man with a cup on a city street' is no still life, 'a row of broken toilets in a field' no interior)
+        if (genre == "still life" and has_people) or (genre == "interior" and _outdoors([c.t for c in caps])):
+            if _vote([{1} if STREET_WORDS.search(c.t) else set() for c in caps]):
+                genre = "street"
+            else:
+                genre = people_genre() if has_people else "scene"
     elif has_people:
-        big = max((b[2] - b[0]) * (b[3] - b[1]) for b in (P["boxes"] or P.get("crowd_boxes", [])))
-        genre = "portrait" if n_people <= 2 and big >= 0.2 else "people"
+        genre = people_genre()
+    elif sum(g["area"] for c, g in groups.items() if cat_super.get(c) == "food") >= 0.05:
+        genre = "food"                       # the food is boxed and the captions name it otherwise ('two pizza rolls on a plate')
     elif _vote([{1} if CITY_WORDS.search(c.t) else set() for c in caps]):
         genre = "cityscape"
     elif _vote([{1} if STREET_WORDS.search(c.t) else set() for c in caps]):
         genre = "street"
+    elif _vote([{1} if _place_words(c.t)[1] else set() for c in caps]):
+        genre = "interior"                   # the captions name a room ('the older hospital room', 'a room with some big window')
     else:
         genre = "landscape" if _vote([{1} if LAND_WORDS.search(c.t) else set() for c in caps]) else "scene"
     if has_people and main and main != "kite" and cat_super.get(main) == "sports":

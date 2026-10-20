@@ -167,6 +167,64 @@ def test_one_person_among_slips_kin_words_and_pairs():
     assert "woods" not in coco._Cap("In the background there is a wall which is made of woods.").t
 
 
+def test_the_subject_is_what_the_captions_name():
+    """A sealed subject is not replaced by its background, and a noun three captions agree on comes before a box none names."""
+    cats = {2: "bicycle", 8: "truck", 65: "bed"}
+    sup = {"bicycle": "vehicle", "truck": "vehicle", "bed": "furniture"}
+    free_id = next(i for i in range(1000) if not core.held_pick(f"coco-image:{i}"))
+    caps = ["A blue bike parked on a side walk.", "A bicycle is chained to a fixture on a city street.",
+            "A blue bicycle sits on a sidewalk near a street.", "A bicycle is locked up to a post.", "A bike sits parked next to a street."]
+    ann = [(2, 100.0, 100.0, 300.0, 300.0, 0)] + [(8, 380.0 + 80 * k, 40.0, 120.0, 80.0, 0) for k in range(3)]
+    s = coco.build(free_id, 640, 480, ann, caps, cats, sup)
+    assert s is None or "truck" not in json.dumps(s["spec"])             # the trucks behind the bicycle are not its picture
+    caps = ["A man riding a bike down a street.", "A man with a helmet on rides a bicycle.", "A man riding his bicycle down a road.",
+            "A black and white photo of a cyclist."]
+    s = coco.build(free_id, 640, 480, [(27, 100.0, 100.0, 200.0, 200.0, 0)], caps, {27: "backpack"}, {"backpack": "accessory"})
+    assert s is None or "backpack" not in json.dumps(s["spec"])          # no bicycle box: the captions' bicycle is still the subject
+    # two beds boxed; the captions speak of a room and its two windows
+    caps = ["A couple of windows sitting inside of a room.", "A room with some big window on the side of it.",
+            "The older hospital room looks like it could be remodeled.", "An old doctors office with two windows with curtains."]
+    ann = [(65, 100.0, 300.0, 150.0, 100.0, 0), (65, 350.0, 300.0, 150.0, 100.0, 0)]
+    s = coco.build(free_id, 640, 480, ann, caps, cats, sup)
+    assert s["spec"]["thing"] == {"name": "window", "count": "2"} and s["genre"] == "interior"
+    # an orange is not named by its own word (a colour): the captions' tree does not take its place
+    caps = ["A really ripe orange on a tree.", "A ripe orange growing on the tree branch.", "An orange grows on a tree.",
+            "Closeup of an orange with leaves around it."]
+    s = coco.build(free_id, 640, 480, [(55, 200.0, 150.0, 200.0, 180.0, 0)], caps, {55: "orange"}, {"orange": "food"})
+    assert s["spec"]["thing"]["name"] == "orange" and s["genre"] == "food"
+    # a boxed sandwich the captions call pizza rolls: the plate they agree on, still a picture of food
+    caps = ["A pair of pizza rolls for sale are on a plate.", "Two big pizza rolls sitting on a plate with a sign near it.",
+            "Two pizza rolls on a tray with a plate.", "Pizza rolls on a white plate."]
+    s = coco.build(free_id, 640, 480, [(48, 100.0, 100.0, 300.0, 200.0, 0)], caps, {48: "sandwich"}, {"sandwich": "food"})
+    assert s["spec"]["thing"]["name"] == "plate" and s["genre"] == "food"
+
+
+def test_a_still_life_holds_no_people_and_an_interior_is_indoors():
+    cats = {1: "person", 47: "cup", 70: "toilet"}
+    sup = {"person": "person", "cup": "kitchen", "toilet": "furniture"}
+    free_id = next(i for i in range(1000) if not core.held_pick(f"coco-image:{i}"))
+    caps = ["A person with a shopping cart on a city street.", "City dwellers walk by as a homeless man begs for cash.",
+            "People walking past a homeless man begging on a city street.",
+            "A homeless man holding a cup and standing next to a shopping cart on a street.",
+            "People are walking on the street by a homeless person."]
+    ann = [(1, 50.0 + 150 * k, 100.0, 80.0, 250.0, 0) for k in range(3)] + [(47, 300.0, 200.0, 20.0, 20.0, 0)]
+    s = coco.build(free_id, 640, 480, ann, caps, cats, sup)
+    assert s["spec"]["thing"]["name"] == "cup" and s["genre"] == "street"   # people about: no still life
+    caps = ["A row of white toilets sitting on top of a dirt ground.", "A bunch of dirty looking white toilets in a row outside.",
+            "There is a row of used and broken toilets in a field.", "A row of toilets with broken seat tops on the ground."]
+    ann = [(70, 20.0 + 60 * k, 200.0, 50.0, 80.0, 0) for k in range(10)]
+    assert coco.build(free_id, 640, 480, ann, caps, cats, sup)["genre"] == "scene"           # outdoors: no interior
+    # a view from the room, a picture on its wall or a lawn chair do not take the picture outdoors; a room named outweighs one word
+    assert not coco._outdoors(["a living room with a view of the park.", "a couch by a window overlooking the street.",
+                               "a tv showing a football field in a den."])
+    assert not coco._outdoors(["a purple lawn chair by a bed.", "a dog sitting on a lawn chair."])
+    assert not coco._outdoors(["through the glass window, trees.", "on the frame there are images of trees.",
+                               "through this, building and sky."], min_votes=1)
+    assert coco._outdoors(["a dog lying on a lawn chair in the yard.", "a dog on a chair on the grass."])
+    assert not coco._outdoors(["a kitchen with a door to the yard.", "a kitchen with grass outside the door.", "a clean kitchen."])
+    assert coco._outdoors(["a man in a field holding up his cell phone.", "a man sitting on the grass using a cell phone."])
+
+
 def test_sign_text_and_figurines_are_not_the_picture():
     c = coco._Cap("a small shed that says fire hydrant and hose.")
     assert not c.cats.get("fire hydrant")                                   # the label's words, not a hydrant
