@@ -36,7 +36,7 @@ def _load_thought_pack():
 
 
 tp = _load_thought_pack()
-assert tp.VERSION >= "0.1.62", f"thought_pack {tp.VERSION}: the lists changed names at 0.1.62"
+assert tuple(int(x) for x in tp.VERSION.split(".")) >= (0, 1, 62), f"thought_pack {tp.VERSION}: the lists changed names at 0.1.62"
 HELD = tp.seal()                                    # the seals of the 0.1.62 lists (final, Fable 2026-10-19)
 KEYS = set(tp.keys())
 DOMAINS = tp.DOMAINS
