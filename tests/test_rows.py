@@ -58,6 +58,13 @@ def test_drawn_specs_pass_the_coherence_filter(tmp_path):
     assert incoherent({"shot": {"lens": "anamorphic"}, "form": {"medium": "lithograph"}})
     assert not incoherent({"shot": {"lens": "35mm"}, "form": {"medium": "3d render"}})
     assert incoherent({"shot": {"framing": "extreme close"}, "form": {"compose": "frame in frame"}})
+    assert incoherent({"shot": {"framing": "extreme close"}, "thing": {"name": "dog"}})
+    assert not incoherent({"shot": {"framing": "macro"}, "thing": {"name": "cup"}})
+    assert incoherent({"shot": {"framing": "detail", "angle": "over the shoulder"}})
+    assert incoherent({"shot": {"light": "silhouette"}, "form": {"contrast": "low"}})
+    assert incoherent({"scene": {"setting": "library", "weather": "clear"}})
+    assert incoherent({"body": {"pose": "floating"}, "scene": {"setting": "classroom"}})
+    assert not incoherent({"body": {"pose": "floating"}, "scene": {"setting": "pier"}})
     from thought_seeds.rows import tighten
     series = {"medium": {"shot": {"framing": "macro"}, "look": {"hair": "afro", "expression": "blush"},
                          "relation": [{"a": "boy", "rel": "holding", "b": "cup"}]},

@@ -83,6 +83,15 @@ def test_animal_kin_and_a_second_thing():
     assert f.get(("thing", "name")) == "airplane" and ("thing", "count") not in f
 
 
+def test_the_hint_agrees_with_the_chosen_facts():
+    narr = ["A woman is standing on the beach and holding a surfboard.",
+            "A woman holding a surfboard on the sand near the ocean.",
+            "In the center of the image there is a woman who is standing on the beach. She is wearing a black dress and holding a "
+            "white skateboard. In the background there is an ocean and a sky with clouds."]
+    s = ln.build(4242, narr)
+    assert s["spec"]["thing"]["name"] == "surfboard" and "skateboard" not in s["hint"]
+
+
 def test_module_contract():
     for name in ("DATASET", "LICENSE", "URL", "ATTRIBUTION", "CITATION", "TAKEN"):
         assert isinstance(getattr(ln, name), str) and getattr(ln, name)

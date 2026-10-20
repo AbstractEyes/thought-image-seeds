@@ -45,6 +45,7 @@ SKY_LIGHTS = {"hard sun", "golden", "dappled", "moonlight"}
 FLAT_THINGS = {"window", "mirror", "painting", "poster", "flag", "map", "sign"}     # nothing is 'inside' them
 DARK_HOURS = {"blue hour", "night", "midnight", "late evening"}
 WIDE_COMPOSE = {"frame in frame", "horizon high", "horizon low", "leading lines"}      # compositions a macro frame cannot hold
+WATER = {"beach", "river bank", "harbour", "pier", "swamp"}                            # where a person floats
 PERSON_DETAILS = (("look", "hair"), ("look", "expression"), ("look", "eyes"), ("wear", "clothing"), ("wear", "colour"),
                   ("wear", "accessory"))
 TIGHT_DETAILS = {"extreme close": 3, "macro": 1, "detail": 1}      # an extreme close of a face shows hair, expression and eyes
@@ -68,9 +69,10 @@ def tighten(specs: dict) -> dict:
     fr = tight[0]
     full = max(specs.values(), key=tp.n_records)
     cut = set([k for k in PERSON_DETAILS if full.get(k[0], {}).get(k[1])][TIGHT_DETAILS[fr]:])
+    big = tp.SIZE.get(full.get("thing", {}).get("name"), 2) > 1          # a whole dog does not fit a macro frame: the thing goes
     out = {}
     for depth, spec in specs.items():
-        s = {k: dict(v) if isinstance(v, dict) else v for k, v in spec.items() if k != "relation"}
+        s = {k: dict(v) if isinstance(v, dict) else v for k, v in spec.items() if k != "relation" and not (big and k == "thing")}
         for sys_, attr in cut:
             if attr in s.get(sys_, {}):
                 del s[sys_][attr]
@@ -104,8 +106,8 @@ def incoherent(spec: dict) -> list:
         why.append(f"{fr} framing of {len(details)} details of a person")
     sc = spec.get("scene", {})
     st = sc.get("setting")
-    if st in INDOOR and sc.get("weather") not in (None, "clear"):
-        why.append(f"{sc['weather']} inside a {st}")
+    if st in INDOOR and sc.get("weather"):
+        why.append(f"{sc['weather']} weather inside a {st}")
     light = spec.get("shot", {}).get("light")
     if light == "soft window" and st and st not in INDOOR:
         why.append(f"window light outdoors ({st})")
@@ -134,6 +136,15 @@ def incoherent(spec: dict) -> list:
         why.append(f"a {spec['shot']['lens']} lens on a {form['medium']}")       # a lens is the camera's, not a lithograph's
     if fr in TIGHT_FRAMING and form.get("compose") in WIDE_COMPOSE:
         why.append(f"{form['compose']} at a {fr} framing")
+    if fr in TIGHT_FRAMING and spec.get("shot", {}).get("angle") == "over the shoulder":
+        why.append(f"over the shoulder at a {fr} framing")
+    thing = spec.get("thing", {}).get("name")
+    if fr in TIGHT_FRAMING and thing and tp.SIZE.get(thing, 2) > 1:
+        why.append(f"a whole {thing} in a {fr} frame")                         # a macro frame holds a hand-sized thing
+    if light == "silhouette" and form.get("contrast") in ("low", "gentle", "tonal"):
+        why.append(f"{form['contrast']} contrast under a silhouette")
+    if spec.get("body", {}).get("pose") == "floating" and st and st not in WATER:
+        why.append(f"floating at a {st}")
     if spec.get("form", {}).get("medium") in NOT_DRAWN_MEDIA:
         why.append(f"medium {spec['form']['medium']}")
     return why

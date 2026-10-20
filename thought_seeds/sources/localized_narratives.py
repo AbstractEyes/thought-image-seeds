@@ -511,7 +511,10 @@ def build(image_id, narrations: list) -> dict | None:
         sp.relate(a, rel, b)
     name = chosen.get(("thing", "name"))
     cat = next((f["_cat"] for f in fs if name and f.get(("thing", "name")) == name and f.get("_cat")), "")
-    longest = max(narrations, key=len)
+    # the hint is the longest narration among those that contradict the chosen facts least (two annotators say surfboard, the
+    # longest says skateboard: that one is not the hint)
+    clash = [sum(1 for k, v in chosen.items() if k in f and f[k] != v) for f in fs]
+    longest = max((n for n, c in zip(narrations, clash) if c == min(clash)), key=len)
     hint = core.make_hint(_sentences(core.drop_named(C.unshout(plain_narration(longest)))))
     genre = _genre(sp.spec(), cat, any(f.get("_food") for f in fs))
     seed = core.make_seed(DATASET, sid, "photograph", genre, sp, hint, LICENSE, EXPLORE.format(sid), group=f"coco-image:{sid}")
