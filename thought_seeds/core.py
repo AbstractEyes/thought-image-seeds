@@ -250,22 +250,24 @@ def _shouting(s: str) -> bool:
     return len(letters) >= 8 and sum(c.isupper() for c in letters) > 0.8 * len(letters)
 
 
+def _unnamed(s: str, ok: set) -> bool:
+    """drop_named's test of one sentence: no capitalized word past its first word and no all-capitals word outside `ok`, and the
+    sentence not written all in capitals."""
+    if _shouting(s):
+        return False
+    words = s.split()
+    caps = _CAP.findall(" ".join(words[1:]))
+    shout = [w for w in _SHOUT.findall(s) if w not in COMMON_ACRONYMS and w != "I" and w not in ok]
+    return all(c in ok for c in caps) and not shout
+
+
 def drop_named(text: str, allow: set | None = None) -> str:
     """The text without every sentence that may hold a name: a capitalized word past its first word, or an all-capitals word that
     is not a common acronym (OMNI HOTELS, BNSF), or the whole sentence in capitals. The dataset carries no real person's name, so a
     sentence that may hold one is dropped whole. `allow`: extra capitalized or all-capitals words that are not names in this source
     (a culture word, a date mark such as BCE)."""
     ok = COMMON_CAPS | (allow or set())
-    keep = []
-    for s in _SENT.split(str(text).strip()):
-        if _shouting(s):
-            continue
-        words = s.split()
-        caps = [w for w in _CAP.findall(" ".join(words[1:]))]
-        shout = [w for w in _SHOUT.findall(s) if w not in COMMON_ACRONYMS and w != "I" and w not in ok]
-        if all(c in ok for c in caps) and not shout:
-            keep.append(s)
-    return " ".join(keep)
+    return " ".join(s for s in _SENT.split(str(text).strip()) if _unnamed(s, ok))
 
 
 # ------------------------------------------------------------------ the strict name filter (opt in: the prose of a catalogue)
@@ -287,15 +289,40 @@ _NAMEISH = re.compile(r"(?<![:\"'(/-] )(?<![:\"'(/-])\b(Black|White|Red|Blue|Gre
                       r"Old|Little|Small|Large|Big|New|Close|Far)\b")
 
 
+# a full stop after an initial or an abbreviation ends no sentence of catalogue prose: a split there would leave the name as a
+# fragment of its own ('J. M. W. Turner', 'h. schulze', 'St. Francis', 'Mt. Fuji', 'ca. 1850')
+ABBREVIATIONS = ("st", "ste", "mr", "mrs", "ms", "messrs", "mme", "mlle", "dr", "mt", "jr", "sr", "rev", "prof", "fr", "gen", "col",
+                 "capt", "lt", "sgt", "hon", "ca", "no", "nos", "vol", "fig", "figs", "pl", "cat", "inv", "cf", "vs", "approx")
+_NO_SPLIT = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]|\b(?:" + "|".join(ABBREVIATIONS) + r"))\.$", re.I)
+# words of a signature or an inscription: a sentence about one may hold the name it reads
+INSCRIPTION = re.compile(r"\b(?:signatures?|signed|inscribed|inscriptions?|monogram(?:s|med)?|initial(?:l)?ed|initials)\b", re.I)
+_WORD = re.compile(r"[A-Za-z][A-Za-z'-]*")
+
+
+def sentences(text: str) -> list:
+    """The sentences of a text: split after '.', '!' or '?' and a space, but not after an initial or an abbreviation
+    (ABBREVIATIONS), so a name stays whole in the sentence it belongs to."""
+    out = []
+    for piece in _SENT.split(str(text or "").strip()):
+        if out and _NO_SPLIT.search(out[-1]):
+            out[-1] = f"{out[-1]} {piece}"
+        elif piece:
+            out.append(piece)
+    return out
+
+
+def _words(text: str) -> list:
+    """The words of a text, a possessive "'s" taken off ("Church's" -> 'Church')."""
+    return [re.sub(r"'s$", "", w) for w in _WORD.findall(text)]
+
+
 def corpus_vocab(texts) -> set:
     """The plain words of a corpus, for drop_named_strict: a word seen in lower case at least twice and more often in lower case
     than capitalized in the middle of a sentence ('perhaps', 'potter'), never a particle, a title of address or a given name."""
     low, cap = Counter(), Counter()
     for t in texts:
-        for sent in _SENT.split(ascii_text(t or "")):
-            words = re.findall(r"[A-Za-z][A-Za-z'-]*", sent)
-            for w in words[1:]:
-                w = re.sub(r"'s$", "", w)
+        for sent in sentences(ascii_text(t or "")):
+            for w in _words(sent)[1:]:
                 if w[0].isupper():
                     cap[w.lower()] += 1
                 elif w.islower():
@@ -303,21 +330,117 @@ def corpus_vocab(texts) -> set:
     return {w for w, n in low.items() if n >= 2 and n > cap[w] and w not in PARTICLES and w not in GIVEN_NAMES}
 
 
-def drop_named_strict(text: str, vocab: set, allow: set | None = None) -> str:
-    """drop_named for catalogue prose, where a sentence often opens with a name: also every sentence whose first word is
-    capitalized and not a plain word of the corpus (`vocab`, from corpus_vocab; '<Name> painted the street.' passes
-    drop_named), every sentence ending on an initial ('J.'), every sentence with a colour or plain adjective capitalized past its
-    first word, and every sentence with an all-capitals word (an inscription or a signature) other than a date mark or a Roman
-    numeral."""
+# words of a name field that name no one: particles and titles of address ('King', 'Saint'), roles, firms, ordinals ('Workshop
+# of', 'and Sons', '19th Century')
+NAME_SKIP = frozenset((
+    "and of the a an to by for in on at with after from or as de del della dei degli van von der den ten ter du le la les el al "
+    "da di dos das do st ste saint san santa jr sr ii iii iv vi vii viii artist artists attributed workshop studio circle follower "
+    "followers school manner style possibly probably perhaps unknown anonymous master masters maker makers company co inc ltd llc "
+    "corp sons son brothers bros published publisher publishers printed printer printers designed designer engraved engraver "
+    "etched etcher lithographer issued active born died dated century th nd rd press manufactory manufacturing factory works "
+    "gallery editions edition copy copyist imitator imitation pupil assistant shop").split()) | frozenset(PARTICLES)
+
+
+def lower_words(text: str) -> list:
+    """The words a text writes in lower case, anywhere in it ('may', 'church'; a possessive "'s" taken off)."""
+    return [re.sub(r"'s$", "", w) for w in re.findall(r"\b[a-z][a-z'-]*", ascii_text(text or ""))]
+
+
+def plain_words(texts, min_count: int = 2) -> set:
+    """The ordinary words of a source: every word it writes in lower case (lower_words) at least `min_count` times. A name is
+    written capitalized ('Wedgwood', 'Chippendale' are never lower case in a catalogue), so a name word of the source's list
+    that is also one of these ('church', 'may', 'wood') is an ordinary word as well (NameList)."""
+    low = Counter()
+    for t in texts:
+        low.update(lower_words(t))
+    return {w for w, n in low.items() if n >= min_count}
+
+
+_NAME_WORD = re.compile(r"(?<![\w'-])[A-Za-z][A-Za-z'-]*")      # a whole word ('18th-century' holds none)
+
+
+def name_tokens(values, skip=frozenset()) -> set:
+    """The lower-case words of name fields (artist, maker, constituent, sitter) that may stand for a person in a text: every
+    word of three letters or more and each part of a hyphenated one, without NAME_SKIP and `skip` (culture words)."""
+    out = set()
+    for v in values:
+        for w in (re.sub(r"'s$", "", w) for w in _NAME_WORD.findall(ascii_text(v or ""))):
+            w = w.lower().strip("'-")
+            for t in [w] + (w.split("-") if "-" in w else []):
+                if len(t) > 2 and t not in NAME_SKIP and t not in skip:
+                    out.add(t)
+    return out
+
+
+class NameList:
+    """The name words of a source's own artist / maker / constituent / sitter fields (name_tokens), held for the hint test in two
+    parts by the source's plain words (plain_words): a word that is not one of them ('schulze', 'chippendale') counts in any
+    case; a word that is also an ordinary word ('church', 'wood', 'may') counts, with `opening`, only as a sentence's capitalized
+    first word (in lower case it is the ordinary word, and capitalized past the first word drop_named takes it already).
+    `openers`: words that count only that way whatever they are, the words of a record's title or subject terms that may name
+    someone or somewhere ('Adirondacks', 'Napoleon'; in lower case they are ordinary words: 'guardhouse', 'chariots')."""
+
+    def __init__(self, tokens, plain=frozenset(), openers=()):
+        self.plain = plain
+        self.rare = frozenset(t for t in tokens if t not in plain)
+        self.common = frozenset(t for t in tokens if t in plain) | frozenset(openers)
+
+    def __bool__(self) -> bool:
+        return bool(self.rare or self.common)
+
+    def hits(self, text: str, opening: bool = True) -> bool:
+        """Whether `text` holds a name word (with `opening`, also a plain-word name as the capitalized first word)."""
+        words = _words(text)
+        if any(w.lower() in self.rare for w in words):
+            return True
+        return opening and bool(words) and words[0][0].isupper() and words[0] not in COMMON_CAPS and \
+            words[0].lower() in self.common
+
+
+def holds_name(text: str, names: NameList | None = None, own: NameList | None = None, opening: bool = True) -> bool:
+    """Whether `text` holds a name of the source's list (`names`: a word that is not an ordinary word of the source) or of the
+    record's own names (`own`: its artist, maker or sitter, the name words of its title; with `opening`, an ordinary-word name
+    as the capitalized first word too: 'Church's considerable skills ...' of a painting by Church)."""
+    return (names is not None and names.hits(text, False)) or (own is not None and own.hits(text, opening))
+
+
+def _text_names(sents: list, ok: set) -> set:
+    """The words a text writes as names: capitalized past a sentence's first word ('Gabriel Salmon', 'Although Church ...') or
+    in capitals ('F. E. CHURCH'), other than the common capitals and the allowed words."""
+    named = set()
+    for s in sents:
+        rest = " ".join(s.split()[1:])
+        named.update(w for w in _CAP.findall(rest) if w not in COMMON_CAPS and w not in ok)
+        named.update(m.group(1) for m in _NAMEISH.finditer(rest))                # 'Mr. Brown', 'Mrs. White'
+        named.update(w.title() for w in _ALLCAPS.findall(s) if w not in ok and w not in COMMON_ACRONYMS)
+    return named
+
+
+def drop_named_strict(text: str, vocab: set, allow: set | None = None, names: NameList | None = None,
+                      own: NameList | None = None) -> str:
+    """drop_named for catalogue prose, where a sentence often opens with a name, on the sentences of `sentences` (an initial or
+    'St.' keeps its name in its sentence). Dropped besides drop_named's: every sentence whose first word is capitalized and not a
+    plain word of the corpus (`vocab`, from corpus_vocab; '<Name> painted the street.' passes drop_named) or is a word the same text
+    writes as a name ('Gabriel Salmon ... Salmon emphasized'); every sentence that opens in lower case (a fragment); every sentence
+    ending on an initial ('J.'); every sentence with a colour or plain adjective capitalized past its first word; every sentence
+    with an all-capitals word (an inscription or a signature) other than a date mark or a Roman numeral; every sentence holding
+    quoted text or the words of a signature or an inscription; and every sentence holding a name of the source's own name fields
+    (`names`) or of this record's own names (`own`), both NameLists (holds_name)."""
     t = ascii_text(text or "")
     ok = (allow or set()) | DATE_MARKS | {w for w in _ALLCAPS.findall(t) if _ROMAN.fullmatch(w)}
+    sents = sentences(t)
+    named = _text_names(sents, ok)
     keep = []
-    for sent in _SENT.split(drop_named(t, allow=ok)):
+    for sent in sents:
+        if not _unnamed(sent, COMMON_CAPS | ok):
+            continue
         w = re.match(r"\W*([A-Za-z][\w'-]*)", sent)
         if not w:
             continue
         base = re.sub(r"'s$", "", w.group(1))
-        if base[0].isupper() and base not in COMMON_CAPS and base.lower() not in vocab:
+        if base[0].islower() or base in named:
+            continue
+        if base not in COMMON_CAPS and base.lower() not in vocab:
             continue
         if re.search(r"\b[A-Z]\.\s*$", sent):
             continue
@@ -325,8 +448,39 @@ def drop_named_strict(text: str, vocab: set, allow: set | None = None) -> str:
             continue
         if any(c not in DATE_MARKS and not _ROMAN.fullmatch(c) for c in _ALLCAPS.findall(sent)):
             continue
+        if '"' in sent or INSCRIPTION.search(sent) or holds_name(sent, names, own):
+            continue
         keep.append(sent.strip())
     return " ".join(k for k in keep if k)
+
+
+# ------------------------------------------------------------------ text that speaks of the picture as an image (opt in)
+_IMG = r"(?:image|picture)"
+_IMG_VERB = r"(?:shows|depicts|displays|features|portrays|illustrates|presents|captures|contains|showcases|reveals)"
+# a lead-in that names the image as the subject ('The image shows a jug', 'In this image, a man ...', 'An image of a kitten ...'):
+# it goes, the rest stays
+IMAGE_LEAD = re.compile(rf"^(?:in (?:the|this) {_IMG},? |(?:the|this) {_IMG} {_IMG_VERB} |(?:the|this) {_IMG} is (?=an? )|"
+                        rf"an? {_IMG} (?:of|showing) (?=an?\b|the\b|two\b|three\b|four\b|five\b|several\b|many\b|some\b))", re.I)
+# what still speaks of the image or its file after that: the sentence goes whole
+IMAGE_TALK = re.compile(rf"\bthis {_IMG}\b|\b(?:the|this) {_IMG} (?:{_IMG_VERB}|consists)\b|^(?:the|an?) {_IMG}\b|"
+                        rf"\bin this {_IMG}\b|\b(?:high|low|full)[- ]resolution\b|\bresolution (?:image|scan|file|photo\w*|version)\b|"
+                        r"\bimage (?:file|resolution)\b|\bdigital (?:image|file|scan)\b", re.I)
+
+
+def without_image_talk(text: str) -> str:
+    """The text with a sentence's lead-in that speaks of the image as an image taken off ('The image shows a jug with a lid.' ->
+    'A jug with a lid.') and every sentence that still speaks of the image or its file dropped ('In this image the artist ...' after
+    its lead-in is fine; 'This image is one of a set.', 'a high resolution scan' and the dataset gate's phrases, 'the pixels of
+    the sky', are not: the sentence goes, not the seed)."""
+    out = []
+    for s in sentences(text):
+        m = IMAGE_LEAD.match(s)
+        if m:
+            rest = s[m.end():].lstrip()
+            s = rest[:1].upper() + rest[1:]
+        if s and not IMAGE_TALK.search(s) and not tp.speaks_of_the_file(s):
+            out.append(s)
+    return " ".join(out)
 
 
 def make_hint(parts, limit: int = HINT_MAX) -> str:

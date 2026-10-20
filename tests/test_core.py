@@ -3,19 +3,7 @@ from thought_seeds import core, maps
 from thought_seeds.core import tp
 
 
-def test_every_mapped_value_is_in_its_list():
-    for key, mapping in maps.ALL.items():
-        lst = core.closed_list(key)
-        assert lst is not None, key
-        for phrase, value in mapping.items():
-            if value is None or (key in ("wear colour", "thing colour") and value in maps.HAIR_COLOUR_ONLY):
-                continue
-            assert value in lst, (key, phrase, value)
-    for phrase, rel in maps.RELATION.items():
-        assert rel in tp.RELATIONS, (phrase, rel)
-
-
-def test_find_longest_first_and_bounded():
+def test_find_longest_first_and_bounded():                                  # (the maps' values: tests/test_maps.py)
     assert maps.find("a man in a navy blue coat", maps.COLOUR) == ["navy"]
     assert maps.find("an old man sitting", maps.AGE) == ["elderly"]
     assert maps.find("a bookseller", maps.ROLE) == []                     # 'seller' inside a word is not a match
@@ -121,7 +109,7 @@ def test_hyphen_is_not_a_word_boundary():
 def test_intaglio_prints_are_not_etching():
     for t in ("engraving", "drypoint", "aquatint", "line engraving"):
         assert maps.find(t, maps.MEDIUM) == [], t
-    assert maps.find("wood engraving", maps.MEDIUM) == ["woodcut"]
+    assert maps.find("wood engraving", maps.MEDIUM) == []          # end grain cut with engraving tools: not a woodcut
     assert maps.find("etching and aquatint", maps.MEDIUM) == ["etching"]
     assert "etching" not in [v for k, v in maps.MEDIUM.items() if k != "etching"]
 
@@ -153,6 +141,65 @@ def test_strict_name_filter():
             "made it for feast XII.")
     assert core.drop_named_strict(text, vocab) == ("A man and a woman walk under one umbrella. The cup dates to 500 BCE. "
                                                    "Perhaps the potter made it for feast XII.")
+
+
+def test_sentences_keep_initials_and_abbreviations_with_their_name():
+    t = ("J. M. W. Turner admired the street. A statue of St. Francis stands in the garden. Made ca. 1850 in a shop. A stamnos "
+         "(pl. stamnoi) held wine. Two boats.")
+    assert core.sentences(t) == ["J. M. W. Turner admired the street.", "A statue of St. Francis stands in the garden.",
+                                 "Made ca. 1850 in a shop.", "A stamnos (pl. stamnoi) held wine.", "Two boats."]
+    assert core.sentences("Mt. Fuji rises behind the lake. Mr. Brown waves.") == ["Mt. Fuji rises behind the lake.",
+                                                                                  "Mr. Brown waves."]
+
+
+def test_strict_filter_drops_the_sentence_and_not_a_fragment():
+    vocab = core.corpus_vocab(["The cup is on a table. The cup holds tea. A lion fights a demigod. The lion is large."])
+    # the whole sentence of a saint or an initial goes, never a one-word fragment of it ('Francis.', 'Turner admired ...')
+    assert core.drop_named_strict("A statue of St. Francis stands here. The cup is blue. J. M. W. Turner admired it.", vocab) == \
+        "The cup is blue."
+    # a surname the text introduces in full ('Gabriel Salmon ... Salmon emphasized'), a lower-case fragment, an inscription
+    t = ("Gabriel Salmon cut the block. Salmon emphasized the violent action. on right). The lion fights a demigod. There are "
+         "mock inscriptions in the field. The cup bears an ad monogram.")
+    assert core.drop_named_strict(t, vocab) == "The lion fights a demigod."
+
+
+def test_name_tokens_and_plain_words():
+    assert core.name_tokens(["King George III", "Workshop of Jean-Baptiste Oudry", "French 18th-century"]) == \
+        {"george", "jean-baptiste", "jean", "baptiste", "oudry", "french"}            # no title, role, ordinal or numeral
+    assert core.name_tokens(["Jean-Baptiste Oudry (French)"], skip={"french"}) == {"jean-baptiste", "jean", "baptiste", "oudry"}
+    assert core.plain_words(["It may rain.", "We may go, rose by rose.", "Rose Bonheur painted it."]) == {"may", "rose"}
+    assert core.plain_words(["It may rain.", "Rose Bonheur"], min_count=2) == set()
+
+
+def test_name_lists_count_a_rare_word_in_any_case_and_an_ordinary_word_as_an_opener():
+    own = core.NameList({"schulze", "church", "may"}, plain={"church", "may"})
+    assert own.rare == {"schulze"} and own.common == {"church", "may"}
+    assert own.hits("A label of h. schulze is on the back.") and own.hits("Church painted the falls.")
+    assert not own.hits("The church stands on a hill.") and not own.hits("It may rain.")
+    assert not own.hits("Church painted the falls.", opening=False)
+    titled = core.NameList(set(), plain=set(), openers={"guardhouse"})     # a title's words count only as a capitalized opener
+    assert not titled.hits("Soldiers play cards in a guardhouse.") and titled.hits("Guardhouse scenes were popular.")
+    # the source's whole list counts its rare words only; the record's own list counts its ordinary words as an opener too
+    assert not core.holds_name("Church painted the falls.", names=own) and core.holds_name("Church painted the falls.", own=own)
+    assert core.holds_name("a note by schulze", names=own) and not core.NameList(set())
+
+
+def test_strict_filter_with_the_name_lists():
+    vocab = core.corpus_vocab(["The church stands on a hill. The church is white. A label is on the back. The label is small."])
+    plain = core.plain_words(["the church on a hill", "a church", "the label", "a label"])
+    own = core.NameList(core.name_tokens(["Frederic Edwin Church (American, 1826-1900)"]), plain)
+    names = core.NameList(core.name_tokens(["H. Schulze", "Frederic Edwin Church"]), plain)
+    t = ("Church's considerable skills made him famous. The church stands on a hill. A label of h. schulze is on the back. "
+         "A white church stands on a hill.")
+    assert core.drop_named_strict(t, vocab, names=names, own=own) == "The church stands on a hill. A white church stands on a hill."
+    assert "Church's" in core.drop_named_strict(t, vocab, names=names)      # an ordinary word opens a sentence of another record
+
+
+def test_image_talk_goes_and_the_rest_stays():
+    t = ("The image shows a jug with a lid. In this image, a man rides a horse. An image of a kitten on a rug. This image is one of "
+         "a set. The sheet was scanned at high resolution. The pixels of the sky are blue. Two boats float.")
+    assert core.without_image_talk(t) == "A jug with a lid. A man rides a horse. A kitten on a rug. Two boats float."
+    assert core.without_image_talk("The image file is large. A cup.") == "A cup."
 
 
 def test_cohere_keeps_an_age_only_for_one_fitting_person():

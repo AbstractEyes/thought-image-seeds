@@ -66,7 +66,8 @@ def test_met_helpers():
     assert met.medium_of("Pottery fragment with ink inscription") is None
     assert met.medium_of("Albumen silver print from glass negative") == "silver print"
     assert met.medium_of("Engraving; printed in black ink") is None                  # an intaglio print: no list value, not ink
-    assert met.medium_of("Etching and drypoint") == "etching" and met.medium_of("Wood engraving") == "woodcut"
+    assert met.medium_of("Etching and drypoint") == "etching" and met.medium_of("Woodcut") == "woodcut"
+    assert met.medium_of("Wood engraving") is None and met.medium_blocked("Wood engraving")      # not a woodcut
     assert met.medium_blocked("Engraving; printed in black ink") and not met.medium_blocked("Red chalk")
     assert met.medium_of("One of a set of two woodblock-printed books; ink and color on paper") == "woodcut"
     assert met.object_noun("Kylix fragment") == ("kylix", "fragment")

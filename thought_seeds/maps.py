@@ -3,7 +3,7 @@
 Each map takes a source phrase (lower case, as it appears in captions, scene graphs, museum fields or prompts) to ONE value of a closed
 list; a phrase with no honest equivalent is left out rather than bent (a 'shirt' is not a 'jacket'). `find(text, MAP)` returns the
 values found in a text, longest phrase first, word-bounded, in order of appearance. Every value here is checked against the lists by
-the tests (tests/test_maps.py), so a list change in the dataset's tools fails loudly."""
+the tests (tests/test_maps.py; None is a blocking phrase), so a list change in the dataset's tools fails loudly."""
 from __future__ import annotations
 
 import re
@@ -118,11 +118,15 @@ MEDIUM = {"photograph": "photograph", "photo": "photograph", "oil on canvas": "o
           "oil on wood": "oil painting", "oil on copper": "oil painting", "oil on paper": "oil painting", "oil painting": "oil painting",
           "oil paint": "oil painting", "watercolor": "watercolour", "watercolour": "watercolour", "ink": "ink", "ink and wash": "ink",
           "india ink": "ink", "charcoal": "charcoal", "pencil": "pencil", "graphite": "pencil", "gouache": "gouache",
+          "opaque watercolor": "gouache", "opaque watercolour": "gouache",          # the museums' name for gouache
           "acrylic": "acrylic", "acrylic on canvas": "acrylic", "fresco": "fresco", "woodcut": "woodcut", "woodblock print": "woodcut",
-          "woodblock": "woodcut", "wood engraving": "woodcut", "etching": "etching",
-          # intaglio prints other than etching: the list has no value for them, and the phrase blocks a later word of the same
-          # line ('engraving; printed in black ink' is not an ink work)
-          "engraving": None, "drypoint": None, "aquatint": None,
+          "woodblock": "woodcut", "etching": "etching",
+          # intaglio prints other than etching, and the wood engraving (cut in end grain with engraving tools, not a woodcut): the
+          # list has no value for them, and the phrase blocks a later word of the same line ('engraving; printed in black ink' is
+          # not an ink work)
+          "engraving": None, "drypoint": None, "aquatint": None, "wood engraving": None,
+          # two paints named as one medium: neither is the work's medium alone
+          "oil and tempera": None, "tempera and oil": None, "oil and egg tempera": None, "egg tempera and oil": None,
           "digital painting": "digital painting", "digital art": "digital painting", "3d render": "3d render",
           "octane render": "3d render", "unreal engine": "3d render", "blender render": "3d render", "pixel art": "pixel art",
           "collage": "collage", "bronze": "bronze", "marble": "marble", "clay": "clay", "terracotta": "clay", "earthenware": "clay",
