@@ -22,7 +22,7 @@ AGE = {"child": "child", "children": "child", "kid": "child", "kids": "child", "
 ROLE = {"worker": "worker", "workers": "worker", "construction worker": "worker", "dancer": "dancer", "dancers": "dancer",
         "musician": "musician", "musicians": "musician", "guitarist": "musician", "violinist": "musician", "drummer": "musician",
         "soldier": "soldier", "soldiers": "soldier", "farmer": "farmer", "farmers": "farmer", "nurse": "nurse", "student": "student",
-        "students": "student", "chef": "chef", "chefs": "chef", "cook": "chef", "rider": "rider", "riders": "rider", "cyclist": "rider",
+        "students": "student", "chef": "chef", "chefs": "chef", "rider": "rider", "riders": "rider", "cyclist": "rider",
         "biker": "rider", "motorcyclist": "rider", "horseback rider": "rider", "jockey": "rider", "swimmer": "swimmer",
         "swimmers": "swimmer", "painter": "painter", "artist painting": "painter", "monk": "monk", "monks": "monk", "vendor": "vendor",
         "vendors": "vendor", "street vendor": "vendor", "seller": "vendor", "merchant": "vendor", "guard": "guard", "guards": "guard",
@@ -30,22 +30,25 @@ ROLE = {"worker": "worker", "workers": "worker", "construction worker": "worker"
         "reader": "reader", "mother": "mother", "mom": "mother", "father": "father", "dad": "father", "bride": "bride",
         "athlete": "athlete", "athletes": "athlete", "surfer": "athlete", "skier": "athlete", "skateboarder": "athlete",
         "snowboarder": "athlete", "tennis player": "athlete", "baseball player": "athlete", "soccer player": "athlete",
-        "football player": "athlete", "batter": "athlete", "pitcher": "athlete", "player": "athlete", "runner": "athlete"}
+        "football player": "athlete", "baseball batter": "athlete", "runner": "athlete",
+        # None = a longer phrase that blocks a wrong reading (find() skips it)
+        "dvd player": None, "cd player": None, "record player": None, "cake batter": None, "water pitcher": None}
 CLOTHING = {"raincoat": "raincoat", "rain coat": "raincoat", "suit": "suit", "business suit": "suit", "dress": "dress",
             "kimono": "kimono", "hoodie": "hoodie", "hooded sweatshirt": "hoodie", "uniform": "uniform", "overalls": "overalls",
             "gown": "gown", "wedding gown": "gown", "jacket": "jacket", "sweater": "sweater", "jumper": "sweater", "cardigan": "sweater",
             "coat": "coat", "overcoat": "coat", "trench coat": "coat", "robe": "robe", "robes": "robe", "bathrobe": "robe",
             "armour": "armour", "armor": "armour", "apron": "apron", "cloak": "cloak", "cape": "cloak", "tunic": "tunic",
             "jeans": "jeans", "blue jeans": "jeans", "sari": "sari", "saree": "sari", "parka": "parka", "vest": "vest",
-            "waistcoat": "vest"}
+            "waistcoat": "vest", "wet suit": None, "wetsuit": None, "bathing suit": None, "swim suit": None, "swimsuit": None,
+            "space suit": None}
 ACCESSORY = {"hat": "hat", "hats": "hat", "beanie": "hat", "fedora": "hat", "sun hat": "hat", "cowboy hat": "hat", "cap": "cap",
              "baseball cap": "cap", "glasses": "glasses", "sunglasses": "glasses", "eyeglasses": "glasses", "spectacles": "glasses",
-             "goggles": "glasses", "scarf": "scarf", "umbrella": "umbrella", "parasol": "umbrella", "watch": "watch",
-             "wristwatch": "watch", "bag": "bag", "backpack": "bag", "handbag": "bag", "purse": "bag", "shoulder bag": "bag",
+             "goggles": "glasses", "scarf": "scarf", "umbrella": "umbrella", "parasol": "umbrella",
+             "wristwatch": "watch", "wine glasses": None, "wine glass": None, "drinking glasses": None, "bag of": None,
+             "bags of": None, "bag": "bag", "backpack": "bag", "handbag": "bag", "purse": "bag", "shoulder bag": "bag",
              "cane": "cane", "walking stick": "cane", "gloves": "gloves", "glove": "gloves", "mittens": "gloves", "mask": "mask",
-             "crown": "crown", "tiara": "crown", "headphones": "headphones", "earphones": "headphones", "belt": "belt", "veil": "veil",
-             "necklace": "necklace", "earrings": "earrings", "earring": "earrings", "ring": "ring", "bracelet": "bracelet",
-             "brooch": "pin", "pin": "pin"}
+             "crown": "crown", "tiara": "crown", "headphones": "headphones", "earphones": "headphones", "veil": "veil",
+             "necklace": "necklace", "earrings": "earrings", "earring": "earrings", "bracelet": "bracelet", "brooch": "pin"}
 COLOUR = {"black": "black", "blue": "blue", "brown": "brown", "green": "green", "grey": "grey", "gray": "grey", "orange": "orange",
           "pink": "pink", "purple": "purple", "red": "red", "white": "white", "yellow": "yellow", "silver": "silver", "gold": "gold",
           "golden": "golden", "teal": "teal", "turquoise": "turquoise", "violet": "violet", "magenta": "magenta", "crimson": "crimson",
@@ -66,7 +69,7 @@ SETTING = {"market": "market street", "street market": "market street", "marketp
            "river bank": "river bank", "riverbank": "river bank", "riverside": "river bank", "snowfield": "snowfield",
            "snow field": "snowfield", "greenhouse": "greenhouse", "stadium": "stadium", "ballpark": "stadium", "arena": "stadium",
            "workshop": "workshop", "bridge": "bridge", "cliff": "cliff", "cliffs": "cliff", "meadow": "meadow", "laboratory": "laboratory",
-           "lab": "laboratory", "temple": "temple", "shrine": "temple", "bus stop": "bus stop", "hospital": "hospital ward",
+           "temple": "temple", "shrine": "temple", "bus stop": "bus stop", "hospital": "hospital ward",
            "hospital room": "hospital ward", "lighthouse": "lighthouse", "vineyard": "vineyard", "attic": "attic", "ruins": "ruins",
            "pier": "pier", "dock": "pier", "jetty": "pier", "wharf": "pier", "swamp": "swamp", "marsh": "swamp", "courtyard": "courtyard",
            "cave": "cave", "skate park": "skate park", "skatepark": "skate park", "night market": "night market"}
@@ -88,17 +91,17 @@ POSE = {"standing": "standing", "stands": "standing", "sitting": "sitting", "sit
 GESTURE = {"waving": "waving", "waves": "waving", "pointing": "pointing", "points": "pointing", "clapping": "clapping",
            "thumbs up": "thumbs up", "shrugging": "shrug", "saluting": "saluting", "hands clasped": "hands clasped"}
 LIGHT = {"backlit": "backlit", "backlighting": "backlit", "back lit": "backlit", "rim light": "rim light", "rim lighting": "rim light",
-         "neon": "neon", "neon light": "neon", "neon lights": "neon", "candlelight": "candle", "candle light": "candle",
+         "neon light": "neon", "neon lights": "neon", "neon sign": "neon", "neon glow": "neon", "candlelight": "candle", "candle light": "candle",
          "candlelit": "candle", "spotlight": "spotlight", "moonlight": "moonlight", "moonlit": "moonlight",
          "fluorescent": "fluorescent", "firelight": "firelight", "studio lighting": "studio flash", "studio light": "studio flash",
          "dappled light": "dappled", "dappled sunlight": "dappled", "silhouette": "silhouette", "silhouetted": "silhouette",
-         "lantern light": "lantern", "street lamp": "street lamp", "streetlight": "street lamp", "street light": "street lamp",
+         "lantern light": "lantern", "lit by a street lamp": "street lamp", "light of a street lamp": "street lamp",
          "low key": "low key", "low-key": "low key", "high key": "high key", "high-key": "high key", "window light": "soft window",
          "soft window light": "soft window", "harsh sunlight": "hard sun", "golden light": "golden", "overcast light": "overcast"}
 ANGLE = {"low angle": "low angle", "low-angle": "low angle", "high angle": "high angle", "high-angle": "high angle",
-         "overhead": "overhead", "top down": "overhead", "top-down": "overhead", "bird's eye": "overhead", "birds eye": "overhead",
+         "overhead shot": "overhead", "overhead view": "overhead", "top down": "overhead", "top-down": "overhead", "bird's eye": "overhead", "birds eye": "overhead",
          "aerial view": "overhead", "worm's eye": "worm's eye", "dutch angle": "dutch tilt", "dutch tilt": "dutch tilt",
-         "over the shoulder": "over the shoulder", "profile": "profile", "side view": "profile", "three quarter": "three quarter",
+         "over the shoulder": "over the shoulder", "profile": "profile", "in profile": "profile", "three quarter": "three quarter",
          "three-quarter": "three quarter", "front view": "frontal", "frontal": "frontal", "eye level": "eye level"}
 FRAMING = {"close-up": "close-up", "closeup": "close-up", "close up": "close-up", "extreme close-up": "extreme close",
            "extreme closeup": "extreme close", "portrait shot": "portrait", "waist up": "waist up", "upper body": "waist up",
@@ -170,7 +173,8 @@ def find(text: str, mapping: dict) -> list:
     if not text:
         return []
     pat = _pattern(id(mapping), tuple(mapping))
-    return [mapping[m.group(1)] for m in pat.finditer(text.lower())]
+    out = [mapping[m.group(1)] for m in pat.finditer(text.lower())]
+    return [v for v in out if v is not None]           # None: a longer phrase that blocks a wrong reading
 
 
 def first(text: str, mapping: dict) -> str | None:
@@ -187,7 +191,10 @@ def majority(texts, mapping: dict, min_votes: int = 2) -> str | None:
             c[v] += 1
     if not c:
         return None
-    v, n = c.most_common(1)[0]
+    top = sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))
+    v, n = top[0]
+    if len(top) > 1 and top[1][1] == n:
+        return None                                    # a tie: no value (the same result in every process)
     return v if n >= min_votes else None
 
 

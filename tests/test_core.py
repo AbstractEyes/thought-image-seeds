@@ -8,7 +8,7 @@ def test_every_mapped_value_is_in_its_list():
         lst = core.closed_list(key)
         assert lst is not None, key
         for phrase, value in mapping.items():
-            if key in ("wear colour", "thing colour") and value in maps.HAIR_COLOUR_ONLY:
+            if value is None or (key in ("wear colour", "thing colour") and value in maps.HAIR_COLOUR_ONLY):
                 continue
             assert value in lst, (key, phrase, value)
     for phrase, rel in maps.RELATION.items():
@@ -80,3 +80,24 @@ def test_period():
 def test_drop_named_sentences():
     t = "A woman sits by a window. The portrait was painted by Rembrandt in Leiden. Two dogs sleep."
     assert core.drop_named(t) == "A woman sits by a window. Two dogs sleep."
+
+
+def test_blocking_phrases_ties_and_shouting():
+    assert maps.find("two wine glasses and a man in glasses", maps.ACCESSORY) == ["glasses"]
+    assert maps.find("a dvd player", maps.ROLE) == [] and maps.find("a man in a wet suit", maps.CLOTHING) == []
+    assert maps.majority(["a man", "a woman", "a man and a woman"], maps.GENDER) is None          # a tie gives nothing
+    assert core.drop_named("A train at a station. THE BNSF TRAIN ARRIVES. A sign for OMNI HOTELS. A TV on a wall.") == \
+        "A train at a station. A TV on a wall."
+
+
+def test_strip_sealed_drops_the_whole_thing_when_its_name_is_sealed():
+    spec = {"thing": {"name": "bicycle", "colour": "red", "count": "1"}, "person": {"gender": "man"}}
+    assert core.strip_sealed(spec) == {"person": {"gender": "man"}}
+
+
+def test_route_by_group_agrees_across_sources():
+    spec = {"person": {"gender": "woman"}, "body": {"pose": "walking"}}
+    for i in range(300):
+        a = core.route(f"coco:{i}", spec, group=f"coco-image:{i}")[1]
+        b = core.route(f"localized_narratives:{i}", spec, group=f"coco-image:{i}")[1]
+        assert a == b

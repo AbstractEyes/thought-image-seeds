@@ -176,9 +176,12 @@ def sealed(spec: dict) -> list:
 
 
 def strip_sealed(spec: dict) -> dict:
-    """The spec without every record whose value is sealed (a relation goes whole when its rel or an end is sealed)."""
+    """The spec without every record whose value is sealed (a relation goes whole when its rel or an end is sealed; the thing goes
+    whole when its name is sealed, so no count, colour or position is left without the thing it describes)."""
     out = {}
     for system, attrs in spec.items():
+        if system == "thing" and tp.sealed_used([("thing name", attrs.get("name", ""))], HELD):
+            continue
         if system == "relation":
             keep = []
             for i, r in enumerate(attrs, 1):
@@ -199,12 +202,13 @@ def held_pick(seed_id: str, percent: int = HELD_PERCENT) -> bool:
     return int(hashlib.sha1(seed_id.encode("utf-8")).hexdigest()[:8], 16) % 100 < percent
 
 
-def route(seed_id: str, spec: dict) -> tuple:
+def route(seed_id: str, spec: dict, group: str | None = None) -> tuple:
     """-> (spec, held). A spec without sealed values is a training seed; with them, a stable tenth stays whole as a held seed and
-    the rest lose the sealed records (a training row never carries a sealed value)."""
+    the rest lose the sealed records (a training row never carries a sealed value). `group`: the picture's own id when two sources
+    describe the same picture (COCO captions and Localized Narratives), so both make the same held / training choice for it."""
     if not sealed(spec):
         return spec, False
-    if held_pick(seed_id):
+    if held_pick(group or seed_id):
         return spec, True
     return strip_sealed(spec), False
 
@@ -226,16 +230,29 @@ COMMON_CAPS = {"I", "The", "A", "An", "In", "On", "At", "This", "That", "These",
                "Black", "White", "Red", "Blue", "Green", "Yellow", "Brown", "Grey", "Gray", "Orange", "Pink", "Purple"}
 
 
+_SHOUT = re.compile(r"\b[A-Z]{2,}\b")
+COMMON_ACRONYMS = {"TV", "DVD", "CD", "PC", "ATM", "USB", "LED", "LCD", "UFO", "SUV", "BBQ", "OK", "ID", "AM", "PM", "DJ"}
+
+
+def _shouting(s: str) -> bool:
+    """A sentence written all in capitals (a caption typed in capitals): its names cannot be told from its words."""
+    letters = [c for c in s if c.isalpha()]
+    return len(letters) >= 8 and sum(c.isupper() for c in letters) > 0.8 * len(letters)
+
+
 def drop_named(text: str, allow: set | None = None) -> str:
-    """The text without every sentence that holds a capitalized word past its first word (a name of a person, a place, a brand or a
-    title: the dataset carries no real person's name, so a sentence that may hold one is dropped whole). `allow`: extra capitalized
-    words that are not names in this source (a museum's 'Virgin' is a name and is not allowed)."""
+    """The text without every sentence that may hold a name: a capitalized word past its first word, or an all-capitals word that
+    is not a common acronym (OMNI HOTELS, BNSF), or the whole sentence in capitals. The dataset carries no real person's name, so a
+    sentence that may hold one is dropped whole. `allow`: extra capitalized words that are not names in this source."""
     ok = COMMON_CAPS | (allow or set())
     keep = []
     for s in _SENT.split(str(text).strip()):
+        if _shouting(s):
+            continue
         words = s.split()
         caps = [w for w in _CAP.findall(" ".join(words[1:]))]
-        if all(c in ok for c in caps):
+        shout = [w for w in _SHOUT.findall(s) if w not in COMMON_ACRONYMS and w != "I"]
+        if all(c in ok for c in caps) and not shout:
             keep.append(s)
     return " ".join(keep)
 
@@ -265,13 +282,14 @@ def make_hint(parts, limit: int = HINT_MAX) -> str:
 
 
 def make_seed(dataset: str, sid: str, domain: str, genre: str, spec: Spec | dict, hint: str, license: str, url: str,
-              min_records: int = 1) -> dict | None:
-    """The seed object (the contract's fields), routed by the seal; None when the spec is empty or fails the checks."""
+              min_records: int = 1, group: str | None = None) -> dict | None:
+    """The seed object (the contract's fields), routed by the seal; None when the spec is empty or fails the checks. `group`: the
+    picture's own id when another source describes the same picture (route)."""
     if domain not in DOMAINS:
         raise ValueError(f"domain {domain!r}")
     seed_id = f"{dataset}:{sid}"
     raw = spec.spec() if isinstance(spec, Spec) else spec
-    s, held = route(seed_id, raw)
+    s, held = route(seed_id, raw, group)
     if tp.n_records(s) < min_records:
         REJECTED["too few records"] += 1
         return None
