@@ -470,6 +470,39 @@ class _Cap:
         return None
 
 
+def _box_count(n: int, crowd: bool) -> str:
+    """A count from boxes: exact up to three (small far instances are boxed too, so larger box counts are not trusted as numbers),
+    'several' up to ten, 'many' beyond or for a crowd box."""
+    if crowd or n > 10:
+        return "many"
+    return str(n) if n <= 3 else "several"
+
+
+PLURAL_PEOPLE = frozenset(w for w in PERSON_WORDS if w.endswith("s") and w not in ("boss",)) | {
+    "men", "women", "people", "children", "gentlemen", "businessmen", "policemen", "couple", "family", "crowd", "team"}
+INTRODUCED = re.compile(r"\b(?:a|an|one)\s+(?:[a-z]+\s+){0,2}$")
+
+
+def _people_said(c) -> set:
+    """How many people one caption introduces: {'plural'} when it uses a group word ('people', 'a couple', 'skiers'), else the number
+    of people it introduces with 'a' / 'an' / 'one' ('a man and a woman' -> 2; up to 3), else nothing."""
+    ms = [(s, c.t[s:e]) for s, e, _ in PERSON_M.iter(c.t)]
+    if any(w in PLURAL_PEOPLE for _, w in ms):
+        return {"plural"}
+    n = sum(1 for s, w in ms if w not in ("he", "she", "someone", "somebody") and INTRODUCED.search(c.t[max(0, s - 24):s]))
+    return {str(n)} if 1 <= n <= 3 else set()
+
+
+def _stated_count(caps: list, spans) -> str | None:
+    """The number the captions state for a subject: a number word ending within 12 characters before one of the subject's spans
+    (`spans(caption)` -> [(start, end)]), voted across the captions (two agree, no tie)."""
+    votes = []
+    for c in caps:
+        sp = spans(c)
+        votes.append({num for _, ne, num in NUMBER_M.iter(c.t) if any(0 <= ts - ne <= 12 for ts, _ in sp)})
+    return _vote(votes)
+
+
 def _vote(votes: list, min_votes: int = 2):
     """votes: one set of values a caption. The value at least `min_votes` captions give and no other value ties (None otherwise)."""
     c = Counter(v for s in votes for v in set(s) if v is not None)    # None: a blocking phrase of the shared maps
@@ -606,10 +639,18 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
     # --- the person
     P = groups.get("person")
     n_people = len(P["boxes"]) if P else 0
-    has_people = bool(P) and (n_people > 0 or P["crowd"])
+    # boxes alone are not enough: people in the far background, on posters or on screens are boxed too; the captions must speak of
+    # people (two of them at least) before the picture has a person subject
+    spoken = sum(1 for c in caps if PERSON_M.iter(c.t))
+    has_people = bool(P) and (n_people > 0 or P["crowd"]) and spoken >= 2
     gender = None
     if has_people:
-        sp.set("person", "count", "many" if (P["crowd"] or n_people > 20) else str(n_people))
+        stated = _stated_count(caps, lambda c: [(s, e) for s, e, _ in PERSON_M.iter(c.t)])
+        votes = [_people_said(c) for c in caps]
+        said = _vote(votes)
+        more = {v for s in votes for v in s if v == "plural" or (said and said != "plural" and int(v) > int(said))}
+        said = said if said and said != "plural" and not more else None     # any caption with more people: the boxes decide
+        sp.set("person", "count", stated or said or _box_count(n_people, P["crowd"]))
         gender = _vote(_person_votes(caps, GENDER, bound=False, skip_animal_words=True))
         if gender:
             sp.set("person", "gender", gender)
@@ -657,7 +698,8 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
         g = groups[main]
         sp.set("thing", "name", names[main])
         n = len(g["boxes"])
-        sp.set("thing", "count", "many" if (g["crowd"] or n > 20) else str(n))
+        stated = _stated_count(caps, lambda c: [(s, e) for s, e, _ in c.cats.get(main, [])])
+        sp.set("thing", "count", stated or _box_count(n, g["crowd"]))
         allb = g["boxes"] + g.get("crowd_boxes", [])
         pos = {maps.position_of((b[0] + b[2]) / 2) for b in allb}
         if len(pos) == 1:

@@ -91,6 +91,31 @@ def test_a_sealed_object_only_in_the_held_tenth():
     assert s is None or "bicycle" not in json.dumps(s["spec"])           # never a thing whose name the route would strip
 
 
+def test_counts_follow_the_captions():
+    cat_names = {c["id"]: c["name"] for c in CATS}
+    cat_super = {c["name"]: c["supercategory"] for c in CATS}
+    free_id = next(i for i in range(1000) if not core.held_pick(f"coco-image:{i}"))
+    # people boxed in the background, no caption speaks of them: no person system
+    caps = ["A brown dog lying on the grass.", "A dog resting in a park.", "A dog on the lawn.", "A brown dog in a field."]
+    ann = [(18, 200.0, 200.0, 200.0, 150.0, 0)] + [(1, 10.0 + 30 * k, 50.0, 8.0, 20.0, 0) for k in range(3)]
+    s = coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)
+    assert "person" not in s["spec"] and s["spec"]["thing"]["name"] == "dog"
+    # seven dog boxes, the captions say two: the stated number wins
+    caps = ["Two dogs playing in a park.", "Two brown dogs on the grass.", "A pair of dogs running.", "Dogs in a field."]
+    ann = [(18, 20.0 + 80 * k, 200.0, 60.0, 50.0, 0) for k in range(7)]
+    assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["thing"]["count"] == "2"
+    # no number stated: more than three boxes read as 'several', more than ten as 'many'
+    caps = ["Dogs playing in a park.", "Brown dogs on the grass.", "Some dogs running.", "Dogs in a field."]
+    assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["thing"]["count"] == "several"
+    assert coco._box_count(2, False) == "2" and coco._box_count(11, False) == "many" and coco._box_count(1, True) == "many"
+    # one man in the captions, bystanders boxed behind him: the captions' one man; a group word leaves the boxes' count
+    caps = ["A man walking a brown dog.", "A man with his dog on a street.", "A young man walks a dog.", "Dog on a leash."]
+    ann = [(18, 200.0, 200.0, 200.0, 150.0, 0)] + [(1, 10.0 + 60 * k, 50.0, 40.0, 120.0, 0) for k in range(5)]
+    assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]["count"] == "1"
+    caps = ["People walking a brown dog.", "A man with his dog on a street.", "Pedestrians and a dog.", "A dog with people."]
+    assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["person"]["count"] == "several"
+
+
 def test_unshout_drops_all_capitals_sentences():
     assert coco.unshout("A man near a TV. A sign for OMNI HOTELS. A MAN WITH A DOG") == "A man near a TV."
     assert core.drop_named(coco.unshout("A JOHN SMITH poster.")) == ""

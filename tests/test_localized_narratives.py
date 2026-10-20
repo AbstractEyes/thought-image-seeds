@@ -61,6 +61,17 @@ def test_single_text_rules():
     assert f[("thing", "colour")] == "brown" and f["relation"] == [("cat", "beside", "dog")]
 
 
+def test_one_person_takes_the_narrations_pronoun():
+    f = ln.facts("There is a person standing on the ground and he is holding a racket. Behind him there is a fence.", False)
+    assert f[("person", "count")] == "1" and f[("person", "gender")] == "man"
+    f = ln.facts("A kid is standing and he is holding a ball.", False)
+    assert f[("person", "gender")] == "boy" and f[("person", "age")] == "child"         # a young age turns the pronoun's gender
+    f = ln.facts("A person is walking a dog and he is wagging his tail.", False)
+    assert ("person", "gender") not in f                                                  # an animal in the text: 'he' may be the dog
+    f = ln.facts("A person is talking to someone and she is laughing at his joke.", False)
+    assert ("person", "gender") not in f                                                  # both pronouns: no reading
+
+
 def test_module_contract():
     for name in ("DATASET", "LICENSE", "URL", "ATTRIBUTION", "CITATION", "TAKEN"):
         assert isinstance(getattr(ln, name), str) and getattr(ln, name)

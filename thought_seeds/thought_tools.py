@@ -31,7 +31,7 @@ EXPRESSIONS = frozenset(("smile", "frown", "grin", "open mouth", "closed mouth",
                          "sweatdrop", "light smile", "evil smile", "grimace", "parted lips", "clenched teeth", "tongue out", "wide-eyed",
                          "crazy smile", "nervous smile", "seductive smile", "forced smile", "false smile", "one eye closed"))
 
-VERSION = "tools 0.1.3"
+VERSION = "tools 0.1.4"
 REPO = "AbstractPhil/thought-symbolic-image-captions"
 DEPTHS = ("simple", "medium", "deep")
 DOMAINS = ("photograph", "painting", "illustration", "sculpture", "design")
@@ -289,6 +289,8 @@ AGE_OF = {"girl": YOUNG, "boy": YOUNG, "woman": ADULT, "man": ADULT}            
 SUBJECT = {"nonbinary": "person"}                                                                                          # a relation's a end is a noun
 TIGHT = {"macro", "extreme close", "detail"}                                   # a tight frame shows no body pose and no gesture
 FULL_BODY = {"running", "jumping", "climbing", "dancing", "lying", "crouching", "kneeling", "floating", "stretching", "bowing"}   # not in a close-up or portrait
+HANDS_BUSY = {"hands in pockets", "crossed arms", "arms raised"}                # no holding with these poses, no gesture either
+HANDS_BUSY_GESTURES = {"hands clasped", "clapping", "covering face"}            # no holding with these gestures
 WIDE = {"wide", "extreme wide", "establishing"}                                 # no readable expression at that scale
 CLOSE_RELS = {"holding", "touching", "same colour as"}                          # what a tight frame can show of a person and a thing
 CLOSE_RELS_2 = {"touching", "same colour as"}                                   # and of two things
@@ -307,7 +309,8 @@ LIGHT_PLACE = {"street lamp": ("in", {"market street", "alley", "bus stop", "nig
                "soft window": ("not", WILD | {"beach", "bridge", "skate park", "pier", "harbour"}),
                "candle": ("not", {"hospital ward", "laboratory", "subway", "stadium", "skate park", "bus stop", "classroom", "greenhouse"}),
                "firelight": ("in", WILD | {"beach", "farm", "ruins", "courtyard", "kitchen", "workshop", "night market", "vineyard", "garden", "harbour",
-                                           "temple"})}
+                                           "temple"}),
+               "studio flash": ("in", INDOOR - {"cave"})}
 PALE_HUES = {"white", "cream", "ivory", "beige", "sand", "peach", "mint", "lilac", "silver"}
 DARK_HUES = {"black", "charcoal", "navy", "maroon", "wine", "plum", "indigo", "slate"}
 
@@ -404,13 +407,15 @@ def coherent(key: str, val: str, spec: dict) -> bool:
         need = LIGHT_TIME.get(val)
         if need is not None and time is not None and time not in need:
             return False
-        if val in LIGHT_DIM and time is not None and time not in DIM and setting not in INDOOR:
+        if val in LIGHT_DIM and setting not in INDOOR and (time is None or time not in DIM):
             return False
         return _placed(LIGHT_PLACE.get(val), setting)
     if key == "look expression":
         return framing not in WIDE
     if key == "thing name":
         return in_place(val, setting)
+    if key == "body gesture" and spec.get("body", {}).get("pose") in HANDS_BUSY:
+        return False
     if key in ("body pose", "body gesture"):
         if framing in TIGHT:
             return False
@@ -440,7 +445,10 @@ def rel_ok(rel: str, b: str, spec: dict) -> bool:
         return b in STURDY
     if rel == "reflected in":
         return b in REFLECTIVE
-    if rel in ("holding", "larger than"):
+    if rel == "holding":
+        body = spec.get("body", {})
+        return s == 1 and body.get("pose") not in HANDS_BUSY and body.get("gesture") not in HANDS_BUSY_GESTURES
+    if rel == "larger than":
         return s == 1
     if rel == "above":
         return s <= 2

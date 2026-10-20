@@ -58,5 +58,7 @@ def test_draw_thin_specs_domains_and_seeded_depths(tmp_path):
             assert not thin(it["specs"]["simple"], "simple") and not thin(it["specs"]["medium"], "medium")
         else:
             assert not thin(it["spec"], it["depth"])
-    rich = {"spec": {"person": {"gender": "man", "count": "1"}, "thing": {"name": "dog"}}, "hint": "x" * 250}
+    rich = {"spec": {"person": {"gender": "man", "count": "1"}, "thing": {"name": "dog", "count": "1"}}, "hint": "x" * 320}
     assert seed_depth(rich) == "medium" and seed_depth(dict(rich, hint="")) == "simple"
+    thin3 = {"spec": {"person": {"gender": "man", "count": "1"}, "thing": {"name": "dog"}}, "hint": "x" * 320}
+    assert seed_depth(thin3) == "simple"                                    # three facts stay simple, whatever the hint

@@ -113,6 +113,8 @@ PLURAL_PERSON = {"men", "women", "people", "persons", "boys", "girls", "children
                  "athletes", "tourists", "friends", "spectators", "fans", "passengers", "pedestrians", "vendors", "farmers",
                  "musicians", "dancers", "businessmen", "individuals", "couple", "family", "crowd", "team"}
 PRONOUNS = {"he", "she", "someone", "somebody"}
+HE = re.compile(r"\b(?:he|him|his|himself)\b")
+SHE = re.compile(r"\b(?:she|her|hers|herself)\b")
 COUNT_WORDS = {"two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
                "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", "10": "10", "a pair of": "2",
                "a couple of": "2", "couple of": "2", "many": "many", "lots of": "many", "a lot of": "many", "lot of": "many",
@@ -247,6 +249,10 @@ def facts(text: str, may_hold: bool) -> dict:
             if len(g - {"person"}) <= 1:
                 count = "1"
                 gender = _one(g - {"person"})
+                if gender is None and not x.animal:          # 'a person ... he is holding': the narration's pronoun, when only one is used
+                    he, she = bool(HE.search(t)), bool(SHE.search(t))
+                    if he != she:
+                        gender = "man" if he else "woman"
     if count:
         f[("person", "count")] = count
     if gender:
@@ -257,6 +263,8 @@ def facts(text: str, may_hold: bool) -> dict:
                     + _bound(x, ROLE_ACTS))
         if age:
             f[("person", "age")] = age
+            if age in core.YOUNG_AGES and f.get(("person", "gender")) in ("man", "woman") and not any(C.GENDER.get(w) for w in words):
+                f[("person", "gender")] = {"man": "boy", "woman": "girl"}[f[("person", "gender")]]    # a pronoun's gender, a young age
         if role:
             f[("person", "role")] = role
         if count == "1":
