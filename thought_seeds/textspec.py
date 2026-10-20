@@ -3,7 +3,8 @@
 spec_from_text(text) reads the records a text states: the closed lists of the trie (maps.py) found in the text, each with a context
 guard where a word has a second sense ('studio lighting' is a light, not a setting; 'pastel colours' is not a pastel medium; 'wine
 glasses' are not glasses; 'a jungle gym' is no forest), never when negated ('no rain') and never for a picture shown inside the
-scene ('a wall with a framed oil painting', 'a television that displays an image of a city at night'); the thing is the first
+scene ('a wall with a framed oil painting', 'a television that displays an image of a city at night', 'two paintings on the wall.
+The one on the left a detailed oil painting of ...'); the thing is the first
 concrete noun of a fixed vocabulary (animals, vehicles, objects, buildings, food, plants), with its count, bound colour and position
 when the text gives them (a number counts the noun it stands before: never an age, a measure or a title's number, '25 year old
 man', 'six meters tall', 'metin 2'); persons come from the gender / age / role / kin words, and a person word that names no person
@@ -15,8 +16,9 @@ when a person is present and the word sits near the person word; relations from 
 subject and the noun right after the relation word, never a negated one ('facing away from'). Titles of paintings, books, films and
 games ('American Gothic', 'Animal Farm', 'Elden Ring') give nothing. A record is set only when the words state it; nothing is guessed.
 
-Beside it: domain_of (the picture's domain a text asks for), is_explicit, norm_digits (digits a source stores one by one),
-strip_phrases (the 'in the style of <Name>' / 'by <Name>' phrases) and finish (the routed spec without an orphaned wear colour).
+Beside it: domain_of (the picture's domain a text asks for; a photo or a painting shown in the scene asks for none), is_explicit,
+norm_digits (digits a source stores one by one), strip_phrases (the 'in the style of <Name>' / 'by <Name>' phrases) and finish
+(the routed spec without an orphaned wear colour).
 
 This module is not a source: build.available() treats every module under sources/ as one."""
 from __future__ import annotations
@@ -544,16 +546,39 @@ def _inside_image(t: str, start: int) -> bool:
     return bool(IMAGE_OF.search(t[k + 1:start]))
 
 
-def _guarded(t: str, mapping: dict, guard, scene: bool = False) -> str | None:
+# pictures the scene holds ('two paintings on the wall', 'a framed photo'): with them in the text, a medium or a style word followed
+# by what it shows ('The one on the left a detailed oil painting of the royal raccoon king') describes one of them, unless it opens
+# the text before they are named ('An oil painting of a hall with two paintings on the wall')
+SCENE_PICTURES = re.compile(r"\b(?:paintings?|portraits?|pictures?|posters?|photos?|photographs?|drawings?|prints?|canvases|artworks?)"
+                            r"\s+(?:on|hanging on|hung on)\s+(?:the|a|its|their)\s+walls?\b|\bframed\s+(?:[a-z]+\s+){0,2}"
+                            r"(?:paintings?|portraits?|pictures?|photos?|photographs?|posters?|drawings?|prints?)\b|"
+                            r"\b(?:hanging|hung)\s+(?:paintings?|portraits?|pictures?|photos?|photographs?)\b")
+# a form word after one of these is a thing in the scene ('a man holding a photo', 'a dog with a polaroid camera'); the narrower
+# list of IN_SCENE that the picture's domain is judged by ('shot on kodak', 'scratches on photo' speak of this picture)
+HELD_PICTURE = re.compile(r"(?<![\w\-])(?:framed|with|reading|reads|displays?|displaying|holding|holds|hanging|hangs|showing|shows|"
+                          r"carrying|carries|admiring|admires|looking at|looks at|watching|watches)\s+(?:(?:a|an|the|his|her|their|"
+                          r"its|two|three|some|several|many|large|small|big|huge|giant|little|old|vintage|famous|framed|beautiful|"
+                          r"new|blank|torn|wooden|colou?rful|hanging|unfinished|antique|classic|bunch|lot|lots|pile|stack|set|"
+                          r"collection|couple|series|of|oil|watercolou?r|acrylic|ink|pencil|charcoal|pastel|gouache)\s+)*$")
+
+
+def _among_pictures(t: str, start: int, end: int) -> bool:
+    m = SCENE_PICTURES.search(t)
+    if not m or (m.start() >= end and not re.search(r"[.;!?]", t[:start])):
+        return False
+    return bool(re.match(r"\s*(?:of|showing|depicting)\b", t[end:]))
+
+
+def _guarded(t: str, mapping: dict, guard, scene: bool = False, form: bool = False) -> str | None:
     """The first value of the mapping in the text whose guard accepts its context; a blocking phrase is passed over, and so is a
     negated one ('no rain', 'without a hat') and, for the picture's scene, light and form (`scene`), one inside a picture shown in
-    the scene."""
+    the scene; for the picture's form (`form`), one that may speak of a picture the scene holds (_among_pictures)."""
     for s, e, phrase, value in _hits(t, mapping):
         if value is None:
             continue
         before = _before(t, s)
         clause = re.split(r"[,.;:!?()\[\]\"|]", before)[-1]          # a negation of the same clause only
-        if NEGATION & set(clause.split()[-3:]) or (scene and _inside_image(t, s)):
+        if NEGATION & set(clause.split()[-3:]) or (scene and _inside_image(t, s)) or (form and _among_pictures(t, s, e)):
             continue
         if guard(phrase, value, before, _after(t, e)):
             return value
@@ -1010,10 +1035,10 @@ def spec_from_text(text: str, spec: core.Spec | None = None) -> tuple:
     v = maps.first(t, maps.FOCUS)
     if v:
         s.set("shot", "focus", v)
-    v = _guarded(t, maps.MEDIUM, _g_medium, scene=True)
+    v = _guarded(t, maps.MEDIUM, _g_medium, scene=True, form=True)
     if v:
         s.set("form", "medium", v)
-    v = _guarded(t, maps.STYLE, _g_style, scene=True)
+    v = _guarded(t, maps.STYLE, _g_style, scene=True, form=True)
     if v:
         s.set("form", "style", v)
     v = period_of_text(t)
@@ -1058,18 +1083,32 @@ PAINT = re.compile(r"\b(oil painting|oil on canvas|watercolou?r|gouache|acrylic 
                    r"\bpainting\s*$|paintings? of)\b")
 
 
+PHOTO = re.compile(r"\b(photo|photos|photograph|photographs|photography|dslr|polaroid|snapshot|selfie|film still|35mm film|kodak|"
+                   r"portra|fujifilm|canon eos|nikon|leica|hasselblad)\b")
+
+
+def _own_form(t: str, m) -> bool:
+    """Whether the form word of match m speaks of this picture, not of one shown inside the scene ('a man holding a photo', 'a
+    wall with a framed oil painting', 'two paintings on the wall')."""
+    before = _before(t, m.start()) + " "
+    bare = re.search(r"\bwith\s+$", before) and not re.match(r"(?:a|an|the)\s", m.group(0))
+    held = HELD_PICTURE.search(before) and not bare and \
+        not re.search(r"\b(?:made|shot|taken|captured|photographed|filmed)\s+with\s+(?:an?\s+|the\s+)?$", before)
+    return not (held or _inside_image(t, m.start()) or _among_pictures(t, m.start(), m.end()))   # 'shot with a leica', 'line art
+    # with watercolor': how this picture was made
+
+
 def domain_of(t: str) -> str:
     """photograph when the text asks for a photo; painting for paint media; design for logos, icons and product renders;
-    illustration otherwise."""
+    illustration otherwise. A photo or a painting shown inside the scene says nothing of this picture's domain."""
     t = t.lower()
     if re.search(r"\b(logo|logos|icon|icons|emblem|app icon|sticker design|t-shirt design|product render|product design|"
                  r"packaging design|wordmark|monogram|infographic)\b", t):
         return "design"
     t = MASK.sub(" ", norm_digits(t))                       # 'photo realistic', 'photographic' ask for a look, not a photograph
-    if re.search(r"\b(photo|photos|photograph|photographs|photography|dslr|polaroid|snapshot|selfie|film still|"
-                 r"35mm film|kodak|portra|fujifilm|canon eos|nikon|leica|hasselblad)\b", t):
+    if any(_own_form(t, m) for m in PHOTO.finditer(t)):
         return "photograph"
-    if PAINT.search(t):
+    if any(_own_form(t, m) for m in PAINT.finditer(t)):
         return "painting"
     return "illustration"
 

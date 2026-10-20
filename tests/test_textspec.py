@@ -120,6 +120,15 @@ def test_things_inside_the_scene_are_not_the_pictures_form():
     assert "form" not in _spec("Wood engraving of the Greek letter Omega")          # an engraving is no woodcut
     assert _spec("an oil painting of a cat")["form"] == {"medium": "oil painting"}
     assert _spec("a portrait of a woman, oil painting")["form"] == {"medium": "oil painting"}
+    hall = ("A wall in a royal castle. There are two paintings on the wall. The one on the left a detailed oil painting of the royal "
+            "raccoon king. The one on the right a detailed oil painting of the royal raccoon queen.")
+    assert "form" not in _spec(hall) and textspec.domain_of(hall) == "illustration"   # the paintings hang in the scene
+    assert _spec("An oil painting of a hall with two paintings on the wall")["form"] == {"medium": "oil painting"}
+    for text in ("a yellow wall with a large framed oil painting of a car", "a man holding a photo of his family",
+                 "a laptop screen showing a bunch of photographs", "a dog with a polaroid camera"):
+        assert textspec.domain_of(text) == "illustration", text
+    assert textspec.domain_of("a portrait shot with a leica") == "photograph"
+    assert textspec.domain_of("detailed line art with watercolor background") == "painting"
     assert _spec("a cat, in the style of an oil painting")["form"] == {"medium": "oil painting"}
     assert _spec("a comic book illustration of a cat") == {"thing": {"name": "cat", "count": "1"}, "form": {"style": "comic"}}
     assert _spec("a silhouette of a man at sunset")["shot"] == {"light": "silhouette"}
