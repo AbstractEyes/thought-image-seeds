@@ -40,6 +40,62 @@ def _write(path, cols, rows):
             w.writerow({k: r.get(k, "") for k in cols})
 
 
+def _source(tmp_path, objects, terms, images):
+    d = tmp_path / "nga"
+    d.mkdir()
+    _write(d / "objects.csv", OBJ_COLS, objects)
+    _write(d / "objects_terms.csv", TERM_COLS,
+           [{"termid": str(i), "objectid": o, "termtype": k, "term": t, "visualbrowsertheme": v} for i, (o, k, t, v) in
+            enumerate(terms)])
+    _write(d / "published_images.csv", IMG_COLS,
+           [dict({"viewtype": "primary", "sequence": "0", "openaccess": "1"}, **im) for im in images])
+    return str(tmp_path)
+
+
+def test_assistive_text_without_image_talk_names_or_explicit_words(tmp_path):
+    objects = [
+        {"objectid": "11", "title": "The Crowd", "beginyear": "1932", "endyear": "1932", "medium": "tempera on panel",
+         "classification": "Painting", "attribution": "Reginald Marsh"},
+        {"objectid": "12", "title": "Marsh at Dusk", "beginyear": "1880", "endyear": "1880", "medium": "oil on canvas",
+         "classification": "Painting", "attribution": "H. Schulze"},
+        {"objectid": "13", "title": "Bathers", "beginyear": "1880", "endyear": "1880", "medium": "oil on canvas",
+         "classification": "Painting", "attribution": "Unknown"}]
+    terms = [("11", "Keyword", "Crowd", ""), ("11", "Keyword", "Street", ""), ("12", "Keyword", "Landscape", ""),
+             ("13", "Keyword", "Women", "")]
+    images = [
+        {"depictstmsobjectid": "11", "assistivetext": "The image shows a crowded street. Marsh painted the crowd in tempera. "
+                                                      "A label of h. schulze is on the back. In this image, a man waves a hat."},
+        {"depictstmsobjectid": "12", "assistivetext": "A marsh at dusk. Reeds fill the marsh under a gray sky."},
+        {"depictstmsobjectid": "13", "assistivetext": "An erotic scene of two women by a river."}]
+    raw = _source(tmp_path, objects, terms, images)
+    got = {s["seed_id"]: s for s in nga.seeds(raw)}
+    assert "nga:13" not in got                                       # the assistive text holds an explicit word
+    h = got["nga:11"]["hint"]
+    assert "A crowded street." in h and "A man waves a hat." in h                      # the lead-ins go, the rest stays
+    assert "Marsh" not in h and "schulze" not in h and "image" not in h.lower()
+    assert "A marsh at dusk." in got["nga:12"]["hint"]               # the plain word stays where it is no name
+    assert list(nga.seeds(raw, limit=0)) == [] and len(list(nga.seeds(raw, limit=1))) == 1
+
+
+def test_title_gender_eras_and_doubtful_mediums(tmp_path):
+    objects = [
+        {"objectid": "21", "title": "Reclining Woman", "beginyear": "1880", "endyear": "1880", "medium": "oil on canvas",
+         "classification": "Painting"},
+        {"objectid": "22", "title": "Altarpiece", "beginyear": "1490", "endyear": "1500", "medium": "oil and tempera (?) on panel",
+         "classification": "Painting"},
+        {"objectid": "23", "title": "Untitled", "beginyear": "1500", "endyear": "1520", "medium": "oil on panel",
+         "classification": "Painting", "wikidataid": "Q123"}]
+    terms = [("21", "Keyword", "Girl", ""), ("21", "Keyword", "Dog", ""), ("22", "Style", "Gothic", ""),
+             ("22", "Keyword", "Saint", ""), ("22", "Keyword", "Horse", ""), ("23", "School", "Mexican", ""),
+             ("23", "Keyword", "Horse", "")]
+    images = [{"depictstmsobjectid": i, "assistivetext": "A plain painted scene with a horse and a tree."} for i in ("21", "22", "23")]
+    got = {s["seed_id"]: s for s in nga.seeds(_source(tmp_path, objects, terms, images))}
+    assert got["nga:21"]["spec"].get("person", {}).get("gender") != "girl"     # a woman is never made a girl
+    form = got["nga:22"]["spec"].get("form", {})
+    assert "period" not in form and "medium" not in form           # styled Gothic: not renaissance; a doubtful medium: none
+    assert "period" not in got["nga:23"]["spec"].get("form", {})     # a Mexican school: no European era
+
+
 def test_nga_seeds(tmp_path):
     d = tmp_path / "nga"
     d.mkdir()

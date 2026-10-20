@@ -30,7 +30,11 @@ CITATION = """@misc{nga_opendata,
 }"""
 TAKEN = ("records + hint: objects.csv (classification, subclassification, medium, begin / end year, generic titles), "
          "objects_terms.csv (Keyword, Theme, Style, School, Technique), published_images.csv (open-access mark, the primary "
-         "image's assistive text, names dropped); no attribution, inscription, provenance or credit line")
+         "image's assistive text, names dropped); no attribution, inscription, provenance or credit line (the attribution and "
+         "the title are read only to find the names a hint must not keep)")
+MODIFIED = ("transformed by this dataset, not the gallery's own data: catalogue values mapped to the dataset's closed lists; the "
+            "hint is assembled from the catalogue fields and an excerpt of the assistive text, its lead-ins that speak of the image "
+            "('The image shows') taken off and every sentence that may hold a name removed")
 BASE = "https://raw.githubusercontent.com/NationalGalleryOfArt/opendata/main/data/"
 FILES = ("objects.csv", "objects_terms.csv", "published_images.csv")
 OBJECT_URL = "https://www.nga.gov/collection/art-object-page.{}.html"
@@ -66,9 +70,12 @@ def _rows(path: str):
         yield from csv.DictReader(fh)
 
 
+NAME_COLS = ("attribution", "attributioninverted")          # the artists (and 'after' / 'workshop of' forms) of every object
+
+
 def load(raw_dir: str) -> tuple:
-    """-> (objects {id: row}, terms {id: [(type, term)]}, alt {id: assistive text}) for the objects with an open-access primary
-    image."""
+    """-> (objects {id: row}, terms {id: [(type, term)]}, alt {id: assistive text}, the attribution values of every object) for
+    the objects with an open-access primary image."""
     d = os.path.join(raw_dir, DATASET)
     alt, open_ids = {}, set()
     best = {}
@@ -82,16 +89,17 @@ def load(raw_dir: str) -> tuple:
             best[oid] = rank
             alt[oid] = r["assistivetext"]
     keep = ("objectid", "title", "beginyear", "endyear", "medium", "classification", "subclassification",
-            "visualbrowserclassification", "displaydate")
-    objects = {}
+            "visualbrowserclassification", "displaydate") + NAME_COLS
+    objects, attributions = {}, set()
     for r in _rows(os.path.join(d, "objects.csv")):
+        attributions.update(r.get(c) or "" for c in NAME_COLS)
         if r["objectid"] in open_ids:
             objects[r["objectid"]] = {k: r.get(k) or "" for k in keep}
     terms = {}
     for r in _rows(os.path.join(d, "objects_terms.csv")):
         if r["objectid"] in objects:
             terms.setdefault(r["objectid"], []).append((r["termtype"], r["term"], r.get("visualbrowsertheme") or ""))
-    return objects, terms, alt
+    return objects, terms, alt, attributions
 
 
 def style_of(terms) -> str | None:
@@ -128,12 +136,17 @@ def domain_of(o: dict, medium: str | None) -> str | None:
     return None
 
 
-def build(o: dict, tl: list, alt_text: str, vocab: set):
+def build(o: dict, tl: list, alt_text: str, vocab: set, names: core.NameList | None = None):
+    """One object to a seed, or None. `vocab`: the plain words of the assistive texts (core.corpus_vocab); `names`: the name words
+    of every object's attribution beside the ordinary words of the assistive texts (core.plain_words; seeds builds both)."""
     oid = o["objectid"]
     title = o["title"]
     words = [t for _, t, _ in tl]
-    if met.EXPLICIT.search(" ".join([title] + words)):
+    if met.EXPLICIT.search(" ".join([title, alt_text] + words)):      # the assistive text becomes the hint: it is checked too
         return None
+    plain = names.plain if names is not None else vocab | met.TITLE_WORDS | met.CULTURE_WORDS
+    own = core.NameList(core.name_tokens([o.get(c) or "" for c in NAME_COLS], met.CULTURE_WORDS), plain,
+                        openers=met.title_names(title, plain))         # a title's name words: a sitter, a place
     medium = met.medium_of(o["medium"])
     techniques = [t for k, t, _ in tl if k == "Technique"]
     if not medium and techniques and not met.medium_blocked(o["medium"]):
@@ -161,14 +174,16 @@ def build(o: dict, tl: list, alt_text: str, vocab: set):
         s.set("thing", "name", noun, overwrite=True)
     if gtitle and o["classification"] != "Index of American Design":
         met.title_records(s, gtitle, domain)
+    met.title_disagrees(s, title)
     met.fix_person(s)
     if medium:
         s.set("form", "medium", medium)
-    st = style_of([t for k, t, _ in tl if k == "Style"])
+    styles = [t for k, t, _ in tl if k == "Style"]
+    st = style_of(styles)
     if st:
         s.set("form", "style", st)
     per = maps.period_of(o["beginyear"], o["endyear"], western)
-    if per:
+    if per and met.era_agrees(per, styles):              # a work styled 'Gothic' is not renaissance by its dates
         s.set("form", "period", per)
     genre = sub["genre"]
     if not genre:
@@ -182,7 +197,7 @@ def build(o: dict, tl: list, alt_text: str, vocab: set):
         genre = {"painting": "painting", "photograph": "photograph"}.get(domain, o["classification"].lower())
     parts = []
     med = met.plain_phrase(o["medium"], 160)
-    if med:
+    if med and not core.holds_name(med, names, own, opening=False):
         parts.append(f"Medium: {med}.")
     cul = next((c for c in (met.culture_ok(x) for x in schools) if c), None)
     if cul:
@@ -190,13 +205,14 @@ def build(o: dict, tl: list, alt_text: str, vocab: set):
     ss = met.subject_sentence(terms)
     if ss:
         parts.append(ss)
-    if gtitle:
+    if gtitle and not core.holds_name(gtitle, names, own, opening=False):
         parts.append(f'Title: "{gtitle}".')
     allow = (set(cul.split()) if cul else set()) | core.DATE_MARKS
     parts = [core.drop_named(p, allow=allow) for p in parts]
     head = core.make_hint(parts)
-    # the assistive text without a sentence that may hold a name or an all-capitals word (a signature, an inscription)
-    desc = core.drop_named_strict(alt_text, vocab)
+    # the assistive text without its image talk ('The image shows a jug' -> 'A jug'), then without a sentence that may hold a
+    # name, a signature or an inscription
+    desc = core.drop_named_strict(core.without_image_talk(alt_text), vocab, names=names, own=own)
     if desc:
         desc = met.fit(desc, core.HINT_MAX - len(head) - 1)
     hint = core.make_hint([head, desc] if desc else [head])
@@ -204,14 +220,26 @@ def build(o: dict, tl: list, alt_text: str, vocab: set):
                           min_records=1 if len(hint) >= 100 else 2)
 
 
+def name_list(objects: dict, alt: dict, attributions) -> core.NameList:
+    """The source's NameList: the words of every object's attribution, beside the ordinary words of the assistive texts and the
+    media ('chine colle' is a medium's words, not a name)."""
+    texts = list(alt.values()) + [o.get("medium") or "" for o in objects.values()]
+    return core.NameList(core.name_tokens(attributions, met.CULTURE_WORDS),
+                         core.plain_words(texts) | met.TITLE_WORDS | met.CULTURE_WORDS)
+
+
 def seeds(raw_dir: str, limit: int | None = None):
-    objects, terms, alt = load(raw_dir)
+    """Seeds of the open-access objects in a stable spread order; `limit`: at most that many (None: all, 0: none)."""
+    if limit is not None and limit <= 0:
+        return
+    objects, terms, alt, attributions = load(raw_dir)
     vocab = core.corpus_vocab(alt.values())
+    names = name_list(objects, alt, attributions)
     n = 0
     for oid in met.stable_order(objects):
-        seed = build(objects[oid], terms.get(oid, []), alt.get(oid, ""), vocab)
+        seed = build(objects[oid], terms.get(oid, []), alt.get(oid, ""), vocab, names)
         if seed:
             yield seed
             n += 1
-            if limit and n >= limit:
+            if limit is not None and n >= limit:
                 return
