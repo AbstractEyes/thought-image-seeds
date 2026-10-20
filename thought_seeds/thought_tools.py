@@ -31,7 +31,7 @@ EXPRESSIONS = frozenset(("smile", "frown", "grin", "open mouth", "closed mouth",
                          "sweatdrop", "light smile", "evil smile", "grimace", "parted lips", "clenched teeth", "tongue out", "wide-eyed",
                          "crazy smile", "nervous smile", "seductive smile", "forced smile", "false smile", "one eye closed"))
 
-VERSION = "tools 0.1.4"
+VERSION = "tools 0.1.5"
 REPO = "AbstractPhil/thought-symbolic-image-captions"
 DEPTHS = ("simple", "medium", "deep")
 DOMAINS = ("photograph", "painting", "illustration", "sculpture", "design")
@@ -182,6 +182,16 @@ def list_of(key: str) -> str | None:
     if key == "thing name" or (key.startswith("rel") and key[-2:] in (" a", " b")):
         return "thing"
     return None
+
+
+def sealed_all(held: dict) -> set:
+    """Every sealed value, whatever its list."""
+    return {v for vals in held.values() for v in vals}
+
+
+def tag_items(tags) -> list:
+    """The items of a tag wording (comma-separated, the booru register), lower-cased and stripped."""
+    return [x.strip().lower() for x in str(tags or "").split(",") if x.strip()]
 
 
 def sealed_used(recs: list, held: dict) -> list:
@@ -852,6 +862,10 @@ def validate(row: dict, held: dict | None = None) -> list:
             p.append((7, "a held row uses no sealed value"))
         if not h["values"] and used:
             p.append((7, f"a training row uses sealed values: {used}"))
+        if not h["values"]:                                  # the seal is a LAYOUT seal: records and the list-shaped tag wording, not prose
+            tagged = sorted(set(tag_items(row["wordings"].get("tags", ""))) & sealed_all(held))
+            if tagged:
+                p.append((7, f"a training row's tags carry sealed values: {tagged} (prose may say the word; the tag list is a layout)"))
     src = row["source"]
     if not isinstance(src, dict) or not src.get("kind") or not src.get("license"):
         p.append((8, "source needs kind and license"))
@@ -1020,7 +1034,11 @@ Rows come in SERIES of three on one hidden image: ranks 1, 2, 3 = simple, medium
 
 ## The protocol
 1. The vocabulary file and the sealed held-out values first (`python tools/thought_tools.py --vocab=.`): a tenth of
-   every closed list is sealed; training rows never use a sealed value, the held rows for the reads use them.
+   every closed list is sealed; training rows never use a sealed value, the held rows for the reads use them. The seal is a
+   LAYOUT seal, of values and not of words: a training row never carries a sealed value as a record (a spec value, a relation
+   or its ends, a question's value) or as an item of its tag list, which is a layout too; its prose (the thoughts, the caption,
+   the prompt, a seed's hint) may say the word, as the model's pretraining already has. The reads measure meaning travelling
+   from prose into the record layout, not the sight of a word.
 2. The spec before the thought: draw or receive the hidden spec, then the thoughts, then the wordings, then the questions.
 3. A series is written together so the subsets hold.
 4. The diversity knobs are set per batch and logged: the depth mix, the domain, the genres, the register, the share of unknown

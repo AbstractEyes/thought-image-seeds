@@ -202,25 +202,6 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
 _NAME = re.compile(r"(?<=[a-z,;:]\s)([A-Z][a-z]{2,})")
 
 
-# sealed values that are also everyday words in other roles (a dark coat, holding as a relation, light as a noun): not flagged in text
-SEALED_EVERYDAY = frozenset({"dark", "light", "holding", "person", "above", "touching", "still", "cool", "soft", "wet", "settled",
-                             "horizontal", "delicate", "intimate", "flowing", "harsh", "abstract", "food", "from above"})
-
-
-def sealed_in_text(row: dict) -> list:
-    """The sealed (held-out) values a training row's thoughts or wordings say as words (a seed's hint can carry them: 'walking',
-    'door', 'pink'): for review. The validator already rejects them as records; the reads want them unseen as words too."""
-    if (row.get("held") or {}).get("values"):
-        return []
-    texts = " ".join([t.get("text", "") for t in row.get("thoughts", [])] + [str(v) for v in (row.get("wordings") or {}).values()])
-    low = texts.lower()
-    for _, v in tp.records(row.get("spec") or {}):              # the row's own open values ('studio flash') are not leaks
-        if isinstance(v, str) and " " in v:
-            low = low.replace(v.lower(), " ")
-    words = {v for vals in HELD.values() for v in vals if v not in SEALED_EVERYDAY and len(v) > 2}
-    return sorted(w for w in words if re.search(rf"(?<![a-z-]){re.escape(w)}(?![a-z-])", low))
-
-
 def possible_names(row: dict) -> list:
     """Capitalized words inside a sentence of the thoughts or wordings (a real person's name would show here; a place or a style
     name too): for review, not an error."""
@@ -290,9 +271,6 @@ def check_rows(rows_path: str, specs_path: str | None = None) -> dict:
         names = possible_names(r)
         if names:
             warnings.append((rid, "names?", names))
-        sealed_words = sealed_in_text(r)
-        if sealed_words:
-            warnings.append((rid, "held-out words in a training row's text?", sealed_words))
         if r.get("series"):
             series.setdefault(r["series"], []).append(r)
     for sid, rs in series.items():
