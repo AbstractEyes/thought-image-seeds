@@ -42,6 +42,8 @@ TIGHT_FRAMING = {"macro", "extreme close", "detail"}
 NO_SKY = {"subway", "cave"}                   # no sun, moon or horizon reaches them
 STREET_LIT = {"market street", "alley", "bridge", "bus stop", "harbour", "pier", "rooftop", "courtyard", "night market", "skate park"}
 SKY_LIGHTS = {"hard sun", "golden", "dappled", "moonlight"}
+SKY_HOURS = {"dawn", "golden hour", "dusk", "blue hour"}                 # hours named by the colour of the sky
+WET_OR_WINDY = {"rain", "storm", "wind", "drizzle", "sleet", "snow"}
 FLAT_THINGS = {"window", "mirror", "painting", "poster", "flag", "map", "sign"}     # nothing is 'inside' them
 DARK_HOURS = {"blue hour", "night", "midnight", "late evening"}
 WIDE_COMPOSE = {"frame in frame", "horizon high", "horizon low", "leading lines"}      # compositions a macro frame cannot hold
@@ -115,6 +117,10 @@ def incoherent(spec: dict) -> list:
         why.append(f"a street lamp at a {st}")
     if st in NO_SKY and light in SKY_LIGHTS:
         why.append(f"{light} light in a {st}")
+    if st in NO_SKY and sc.get("time") in SKY_HOURS:
+        why.append(f"{sc['time']} in a {st}")                                  # the hour of the sky's colour, where no sky shows
+    if light == "candle" and st and st not in INDOOR and sc.get("weather") in WET_OR_WINDY:
+        why.append(f"candle light in {sc['weather']} at a {st}")
     if st in INDOOR and spec.get("form", {}).get("compose") in ("horizon high", "horizon low"):
         why.append(f"a horizon inside a {st}")
     for r in rels:

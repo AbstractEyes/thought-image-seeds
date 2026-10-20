@@ -114,6 +114,10 @@ PLURAL_PERSON = {"men", "women", "people", "persons", "boys", "girls", "children
                  "musicians", "dancers", "businessmen", "individuals", "couple", "family", "crowd", "team"}
 PRONOUNS = {"he", "she", "someone", "somebody"}
 ANOTHER = re.compile(r"\banother\s+(?:[a-z]+\s+)?$")
+WRITTEN = re.compile(r"(\b(?:written|printed|painted|mentioned|displayed)\b(?:\s+on\s+(?:it|them|this|that|the\s+[a-z]+))?)"
+                     r"\s+(?:as|like|that|saying|which says|which reads)\s+"
+                     r"(?:''[^']*''|\"[^\"]*\"|'[^']*'"                         # the quoted words only
+                     r"|[^.!?,]*?(?=\s+and\s+(?:there|we|i|you|it|in|on|at|this|the|a|an)\b|[,.!?]|$))", re.I)
 HE = re.compile(r"\b(?:he|him|his|himself)\b")
 SHE = re.compile(r"\b(?:she|her|hers|herself)\b")
 COUNT_WORDS = {"two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
@@ -230,9 +234,21 @@ def _end_name(x: _Text, s: int, e: int, kind):
     return kind[1][0]
 
 
+def unwritten(text: str) -> str:
+    """The narration without the words it reads off a sign or a label: 'some text written as ... please pay, cyclist' says nothing
+    of a cyclist in the picture. The read words end at their closing quote, or else at the clause's end ('and there is a boy ...'
+    stays); 'there is text written on it' alone stays."""
+    return WRITTEN.sub(r"\1", text)
+
+
 def facts(text: str, may_hold: bool) -> dict:
     """The records one narration gives: {(system, attr): value} and 'relation': [(a, rel, b)], each where the text is unambiguous."""
-    x = _Text(text)
+    whole = core.ascii_text(text).lower()
+    for p, r in C.SCRUB:
+        whole = p.sub(r, whole)
+    if C.EXPLICIT.search(whole):
+        return {"explicit": True}                         # the explicit check reads the whole narration, the sign's words too
+    x = _Text(unwritten(text))
     f = {}
     if C.EXPLICIT.search(x.t):
         return {"explicit": True}
@@ -500,7 +516,7 @@ def build(image_id, narrations: list) -> dict | None:
             if v:
                 chosen[k] = v
         rv = Counter(r for f in fs for r in set(f.get("relation", [])))
-        rels = [r for r, n in rv.most_common() if n >= 2]
+        rels = [r for r, n in sorted(rv.items(), key=lambda x: (-x[1], x[0])) if n >= 2]     # ties in a fixed order, every run
     thing_keys = [k for k in chosen if k[0] == "thing"]
     if thing_keys and ("thing", "name") not in chosen:
         for k in thing_keys:

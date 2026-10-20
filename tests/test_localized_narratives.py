@@ -83,6 +83,21 @@ def test_animal_kin_and_a_second_thing():
     assert f.get(("thing", "name")) == "airplane" and ("thing", "count") not in f
 
 
+def test_words_read_off_a_sign_are_not_the_picture():
+    t = "There is an object in the center. On the object there is some text written as meter remains as a courtesy to cyclist please pay."
+    assert ln.unwritten(t) == "There is an object in the center. On the object there is some text written."
+    f = ln.facts(t, False)
+    assert not any(isinstance(k, tuple) and k[0] == "person" for k in f)            # no cyclist in the picture
+    f = ln.facts("A man is standing near a board. Something is written on it.", False)
+    assert f[("person", "count")] == "1"                                              # 'written on it' alone takes nothing away
+    t = ("There is a sign board on which it is written as ''dog run'' and there is a house at the center, there is a boy who is "
+         "walking at the left side, there are trees")
+    assert ln.unwritten(t).startswith("There is a sign board on which it is written and there is a house")
+    assert ln.facts(t, False)[("person", "gender")] == "boy"                          # the read words end at their closing quote
+    t = "A board with text written as please pay here and there is a man standing beside it."
+    assert ln.facts(t, False)[("person", "gender")] == "man"                          # unquoted: they end at the next clause
+
+
 def test_the_hint_agrees_with_the_chosen_facts():
     narr = ["A woman is standing on the beach and holding a surfboard.",
             "A woman holding a surfboard on the sand near the ocean.",
