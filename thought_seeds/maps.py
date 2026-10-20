@@ -119,8 +119,11 @@ MEDIUM = {"photograph": "photograph", "photo": "photograph", "oil on canvas": "o
           "oil paint": "oil painting", "watercolor": "watercolour", "watercolour": "watercolour", "ink": "ink", "ink and wash": "ink",
           "india ink": "ink", "charcoal": "charcoal", "pencil": "pencil", "graphite": "pencil", "gouache": "gouache",
           "acrylic": "acrylic", "acrylic on canvas": "acrylic", "fresco": "fresco", "woodcut": "woodcut", "woodblock print": "woodcut",
-          "woodblock": "woodcut", "wood engraving": "woodcut", "etching": "etching", "drypoint": "etching", "aquatint": "etching",
-          "engraving": "etching", "digital painting": "digital painting", "digital art": "digital painting", "3d render": "3d render",
+          "woodblock": "woodcut", "wood engraving": "woodcut", "etching": "etching",
+          # intaglio prints other than etching: the list has no value for them, and the phrase blocks a later word of the same
+          # line ('engraving; printed in black ink' is not an ink work)
+          "engraving": None, "drypoint": None, "aquatint": None,
+          "digital painting": "digital painting", "digital art": "digital painting", "3d render": "3d render",
           "octane render": "3d render", "unreal engine": "3d render", "blender render": "3d render", "pixel art": "pixel art",
           "collage": "collage", "bronze": "bronze", "marble": "marble", "clay": "clay", "terracotta": "clay", "earthenware": "clay",
           "pastel": "pastel", "tempera": "tempera", "egg tempera": "tempera", "linocut": "linocut", "gelatin silver print": "silver print",
@@ -162,10 +165,16 @@ ALL = {"person gender": GENDER, "person age": AGE, "person role": ROLE, "wear cl
        "form texture": TEXTURE, "form contrast": CONTRAST}
 
 
+def pattern(phrases) -> re.Pattern:
+    """One regular expression for a set of phrases, longest first, bounded as words: a letter, a digit, an apostrophe or a hyphen
+    next to a match makes it part of a longer word ('impressionism' is not found inside 'post-impressionism')."""
+    alts = sorted(dict.fromkeys(phrases), key=len, reverse=True)
+    return re.compile(r"(?<![a-z0-9'\-])(" + "|".join(re.escape(p) for p in alts) + r")(?![a-z0-9'\-])")
+
+
 @lru_cache(maxsize=None)
 def _pattern(map_id: int, phrases: tuple):
-    alts = sorted(phrases, key=len, reverse=True)
-    return re.compile(r"(?<![a-z0-9'])(" + "|".join(re.escape(p) for p in alts) + r")(?![a-z0-9'])")
+    return pattern(phrases)
 
 
 def find(text: str, mapping: dict) -> list:
@@ -180,6 +189,23 @@ def find(text: str, mapping: dict) -> list:
 def first(text: str, mapping: dict) -> str | None:
     vals = find(text, mapping)
     return vals[0] if vals else None
+
+
+def lookup(word: str, mapping: dict) -> str | None:
+    """The value of one word or phrase in a mapping, or of its singular when only that is listed ('cyclists' -> 'cyclist' ->
+    rider); None when neither is listed or the entry is a blocking phrase. Never a KeyError."""
+    w = str(word or "").strip().lower()
+    forms = [w]
+    if w.endswith("ies"):
+        forms.append(w[:-3] + "y")
+    if w.endswith("es"):
+        forms.append(w[:-2])
+    if w.endswith("s"):
+        forms.append(w[:-1])
+    for f in forms:
+        if f in mapping:
+            return mapping[f]
+    return None
 
 
 def majority(texts, mapping: dict, min_votes: int = 2) -> str | None:
@@ -198,8 +224,23 @@ def majority(texts, mapping: dict, min_votes: int = 2) -> str | None:
     return v if n >= min_votes else None
 
 
-def period_of(year) -> str | None:
-    """A date (the start year; negative = BCE) to the trie's period list."""
+EURO_ERAS = {"medieval", "renaissance", "baroque"}   # the period names of the European tradition
+
+
+def period_of(begin, end=None, western: bool = True) -> str | None:
+    """A date (the start year; negative = BCE) to the trie's period list. With `end`, a period only when the begin and the end
+    year fall in the same one (a span across two is left out). The European era names (medieval, renaissance, baroque) only for a
+    work of the European tradition (`western`: an Aztec stone of 1503 is not 'renaissance'); the neutral ones (ancient, 19th
+    century, mid century ...) for any."""
+    a = _period(begin)
+    if end not in (None, ""):
+        a = a if a == _period(end) else None
+    if a in EURO_ERAS and not western:
+        return None
+    return a
+
+
+def _period(year) -> str | None:
     try:
         y = int(year)
     except (TypeError, ValueError):

@@ -213,8 +213,18 @@ def route(seed_id: str, spec: dict, group: str | None = None) -> tuple:
     return strip_sealed(spec), False
 
 
+# typographic punctuation to its ASCII form, before the fold drops what has no ASCII form (an en dash in a year span would vanish,
+# '188889'; a curly apostrophe would turn "man's" into 'mans')
+PUNCT = str.maketrans({**dict.fromkeys(map(chr, (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)), "-"),  # dashes, minus
+                       **dict.fromkeys(map(chr, (0x2018, 0x2019, 0x201A, 0x201B)), "'"),                            # single quotes
+                       **dict.fromkeys(map(chr, (0x201C, 0x201D, 0x201E, 0x201F)), '"'),                            # double quotes
+                       chr(0x00D7): "x", chr(0x00BD): " 1/2", chr(0x00BC): " 1/4", chr(0x00BE): " 3/4"})          # times, fractions
+
+
 def ascii_text(s: str) -> str:
-    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode("ascii")
+    """Plain ASCII text: typographic dashes and quotes to their ASCII forms (PUNCT), then accents folded, any other non-ASCII
+    character dropped, spaces collapsed."""
+    s = unicodedata.normalize("NFKD", str(s).translate(PUNCT)).encode("ascii", "ignore").decode("ascii")
     return re.sub(r"\s+", " ", s).strip()
 
 
@@ -243,7 +253,8 @@ def _shouting(s: str) -> bool:
 def drop_named(text: str, allow: set | None = None) -> str:
     """The text without every sentence that may hold a name: a capitalized word past its first word, or an all-capitals word that
     is not a common acronym (OMNI HOTELS, BNSF), or the whole sentence in capitals. The dataset carries no real person's name, so a
-    sentence that may hold one is dropped whole. `allow`: extra capitalized words that are not names in this source."""
+    sentence that may hold one is dropped whole. `allow`: extra capitalized or all-capitals words that are not names in this source
+    (a culture word, a date mark such as BCE)."""
     ok = COMMON_CAPS | (allow or set())
     keep = []
     for s in _SENT.split(str(text).strip()):
@@ -251,10 +262,71 @@ def drop_named(text: str, allow: set | None = None) -> str:
             continue
         words = s.split()
         caps = [w for w in _CAP.findall(" ".join(words[1:]))]
-        shout = [w for w in _SHOUT.findall(s) if w not in COMMON_ACRONYMS and w != "I"]
+        shout = [w for w in _SHOUT.findall(s) if w not in COMMON_ACRONYMS and w != "I" and w not in ok]
         if all(c in ok for c in caps) and not shout:
             keep.append(s)
     return " ".join(keep)
+
+
+# ------------------------------------------------------------------ the strict name filter (opt in: the prose of a catalogue)
+DATE_MARKS = {"BCE", "CE", "BC", "AD", "AH"}         # all-capitals words of a date, never a name
+# words that are capitalized inside a name more than in plain prose: never taken for a plain word of a corpus
+PARTICLES = {"de", "van", "von", "da", "di", "del", "della", "der", "den", "du", "le", "la", "el", "al", "ibn", "bin", "mac", "mc",
+             "st", "saint", "san", "santa", "sir", "mr", "mrs", "ms", "dr", "madame", "monsieur", "mademoiselle", "signor", "don",
+             "dona", "fra", "ser", "lord", "pope", "emperor", "empress", "king", "queen", "prince", "princess", "duke", "duchess",
+             "count", "countess", "bishop", "cardinal", "father", "brother", "sister", "mother", "general", "captain", "colonel"}
+# given names that are also plain words: a title or a corpus word list never takes them as plain
+GIVEN_NAMES = {"rose", "lily", "violet", "daisy", "iris", "ivy", "holly", "hazel", "olive", "pearl", "ruby", "amber", "jasmine",
+               "grace", "joy", "hope", "faith", "may", "june", "april", "august", "mark", "bill", "frank", "will", "jack", "guy",
+               "dawn", "eve", "carol", "rob", "victor", "victoria", "georgia", "virginia", "florence", "sydney", "chase", "summer",
+               "autumn"}
+_ALLCAPS = re.compile(r"\b[A-Z]{2,}\b")
+_ROMAN = re.compile(r"[IVXLC]+")
+# a colour or plain adjective capitalized in the middle of a sentence is a name ('White', 'Brown', 'Young') or a place ('Black Sea')
+_NAMEISH = re.compile(r"(?<![:\"'(/-] )(?<![:\"'(/-])\b(Black|White|Red|Blue|Green|Yellow|Brown|Grey|Gray|Orange|Pink|Purple|Young|"
+                      r"Old|Little|Small|Large|Big|New|Close|Far)\b")
+
+
+def corpus_vocab(texts) -> set:
+    """The plain words of a corpus, for drop_named_strict: a word seen in lower case at least twice and more often in lower case
+    than capitalized in the middle of a sentence ('perhaps', 'potter'), never a particle, a title of address or a given name."""
+    low, cap = Counter(), Counter()
+    for t in texts:
+        for sent in _SENT.split(ascii_text(t or "")):
+            words = re.findall(r"[A-Za-z][A-Za-z'-]*", sent)
+            for w in words[1:]:
+                w = re.sub(r"'s$", "", w)
+                if w[0].isupper():
+                    cap[w.lower()] += 1
+                elif w.islower():
+                    low[w] += 1
+    return {w for w, n in low.items() if n >= 2 and n > cap[w] and w not in PARTICLES and w not in GIVEN_NAMES}
+
+
+def drop_named_strict(text: str, vocab: set, allow: set | None = None) -> str:
+    """drop_named for catalogue prose, where a sentence often opens with a name: also every sentence whose first word is
+    capitalized and not a plain word of the corpus (`vocab`, from corpus_vocab; '<Name> painted the street.' passes
+    drop_named), every sentence ending on an initial ('J.'), every sentence with a colour or plain adjective capitalized past its
+    first word, and every sentence with an all-capitals word (an inscription or a signature) other than a date mark or a Roman
+    numeral."""
+    t = ascii_text(text or "")
+    ok = (allow or set()) | DATE_MARKS | {w for w in _ALLCAPS.findall(t) if _ROMAN.fullmatch(w)}
+    keep = []
+    for sent in _SENT.split(drop_named(t, allow=ok)):
+        w = re.match(r"\W*([A-Za-z][\w'-]*)", sent)
+        if not w:
+            continue
+        base = re.sub(r"'s$", "", w.group(1))
+        if base[0].isupper() and base not in COMMON_CAPS and base.lower() not in vocab:
+            continue
+        if re.search(r"\b[A-Z]\.\s*$", sent):
+            continue
+        if _NAMEISH.search(sent[w.end():]):
+            continue
+        if any(c not in DATE_MARKS and not _ROMAN.fullmatch(c) for c in _ALLCAPS.findall(sent)):
+            continue
+        keep.append(sent.strip())
+    return " ".join(k for k in keep if k)
 
 
 def make_hint(parts, limit: int = HINT_MAX) -> str:

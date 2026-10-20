@@ -103,6 +103,58 @@ def test_route_by_group_agrees_across_sources():
         assert a == b
 
 
+def test_ascii_text_folds_typographic_punctuation():
+    dash, apos, lq, rq = chr(0x2013), chr(0x2019), chr(0x201C), chr(0x201D)
+    assert core.ascii_text(f"ca. 1888{dash}89") == "ca. 1888-89"                 # not '188889'
+    assert core.ascii_text(f"Van Gogh{apos}s room") == "Van Gogh's room"           # not 'Goghs'
+    assert core.ascii_text(f"a sign that reads {lq}OPEN{rq}") == 'a sign that reads "OPEN"'
+    assert core.ascii_text(f"8{chr(0x00BD)} x 11 in., caf{chr(0x00E9)}") == "8 1/2 x 11 in., cafe"
+
+
+def test_hyphen_is_not_a_word_boundary():
+    assert maps.find("post-impressionism", maps.STYLE) == [] and maps.find("neo-gothic", maps.STYLE) == []
+    assert maps.find("impressionism", maps.STYLE) == ["impressionism"]
+    assert maps.find("a close-up of a face, low-angle", maps.FRAMING) == ["close-up"]
+    assert maps.find("a close-up of a face, low-angle", maps.ANGLE) == ["low angle"]
+
+
+def test_intaglio_prints_are_not_etching():
+    for t in ("engraving", "drypoint", "aquatint", "line engraving"):
+        assert maps.find(t, maps.MEDIUM) == [], t
+    assert maps.find("wood engraving", maps.MEDIUM) == ["woodcut"]
+    assert maps.find("etching and aquatint", maps.MEDIUM) == ["etching"]
+    assert "etching" not in [v for k, v in maps.MEDIUM.items() if k != "etching"]
+
+
+def test_period_european_eras_only_for_western_art():
+    assert maps.period_of(1503) == "renaissance" and maps.period_of(1503, western=False) is None
+    assert maps.period_of(1650, 1680) == "baroque" and maps.period_of(1650, 1680, western=False) is None
+    assert maps.period_of(1590, 1610) is None                                     # a span across two periods
+    assert maps.period_of(1850, 1859, western=False) == "19th century" and maps.period_of(-300, "", False) == "ancient"
+
+
+def test_role_lookup_of_plurals():
+    assert maps.lookup("cyclists", maps.ROLE) == "rider" and maps.lookup("bikers", maps.ROLE) == "rider"
+    assert maps.lookup("swimmers", maps.ROLE) == "swimmer" and maps.lookup("Monks", maps.ROLE) == "monk"
+    assert maps.lookup("dvd players", maps.ROLE) is None and maps.lookup("astronauts", maps.ROLE) is None
+
+
+def test_date_marks_pass_drop_named_when_allowed():
+    assert core.drop_named("Made about 500 BCE.") == ""                           # an all-capitals word: a possible name
+    assert core.drop_named("Made about 500 BCE.", allow=core.DATE_MARKS) == "Made about 500 BCE."
+
+
+def test_strict_name_filter():
+    vocab = core.corpus_vocab(["The potter shaped the bowl. It was perhaps a gift.",
+                               "A bowl by the potter. It is perhaps the oldest."])
+    assert {"potter", "perhaps"} <= vocab and "rose" not in core.corpus_vocab(["a rose. a rose. a rose."])   # a given name
+    text = ("Caillebotte captured a busy street. A man and a woman walk under one umbrella. The street was painted by J. "
+            "Here White balanced the light. The signature reads CLAUDE MONET. The cup dates to 500 BCE. Perhaps the potter "
+            "made it for feast XII.")
+    assert core.drop_named_strict(text, vocab) == ("A man and a woman walk under one umbrella. The cup dates to 500 BCE. "
+                                                   "Perhaps the potter made it for feast XII.")
+
+
 def test_cohere_keeps_an_age_only_for_one_fitting_person():
     assert core.cohere({"person": {"age": "child"}}) == {}
     assert core.cohere({"person": {"count": "2", "age": "child", "gender": "man"}}) == {"person": {"count": "2", "gender": "man"}}
