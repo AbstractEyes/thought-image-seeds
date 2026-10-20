@@ -44,27 +44,38 @@ STREET_LIT = {"market street", "alley", "bridge", "bus stop", "harbour", "pier",
 SKY_LIGHTS = {"hard sun", "golden", "dappled", "moonlight"}
 FLAT_THINGS = {"window", "mirror", "painting", "poster", "flag", "map", "sign"}     # nothing is 'inside' them
 DARK_HOURS = {"blue hour", "night", "midnight", "late evening"}
+WIDE_COMPOSE = {"frame in frame", "horizon high", "horizon low", "leading lines"}      # compositions a macro frame cannot hold
 PERSON_DETAILS = (("look", "hair"), ("look", "expression"), ("look", "eyes"), ("wear", "clothing"), ("wear", "colour"),
                   ("wear", "accessory"))
 TIGHT_DETAILS = {"extreme close": 3, "macro": 1, "detail": 1}      # an extreme close of a face shows hair, expression and eyes
 DEEP_MIN_DRAWN = 10       # a deep spec keeps 10 drawn records after tighten(); the writer's mood, intent and story reach the deep count
 
 
+def nested(specs: dict) -> bool:
+    """A series' ranks are nested: every record of the simple spec is in the medium spec, and every record of the medium in the deep."""
+    rec = {d: set(map(str, tp.records(s))) for d, s in specs.items()}
+    return rec["simple"] <= rec["medium"] <= rec["deep"]
+
+
 def tighten(specs: dict) -> dict:
     """A drawn series at a tight framing, made one picture: the relations go (a macro frame shows one small part, not two things in
     a relation) and the person keeps only the details the framing can show (the first in PERSON_DETAILS order). The framing words
-    stay in the drawn rows instead of being redrawn away. -> the series' specs, changed only when the framing is tight."""
+    stay in the drawn rows instead of being redrawn away. The cut is decided on the fullest rank and applied to every rank, so the
+    ranks stay nested (each a subset of the next). -> the series' specs, changed only when a rank's framing is tight."""
+    tight = [s.get("shot", {}).get("framing") for s in specs.values() if s.get("shot", {}).get("framing") in TIGHT_FRAMING]
+    if not tight:
+        return specs
+    fr = tight[0]
+    full = max(specs.values(), key=tp.n_records)
+    cut = set([k for k in PERSON_DETAILS if full.get(k[0], {}).get(k[1])][TIGHT_DETAILS[fr]:])
     out = {}
     for depth, spec in specs.items():
-        fr = spec.get("shot", {}).get("framing")
-        if fr not in TIGHT_FRAMING:
-            out[depth] = spec
-            continue
         s = {k: dict(v) if isinstance(v, dict) else v for k, v in spec.items() if k != "relation"}
-        for sys_, attr in [k for k in PERSON_DETAILS if s.get(k[0], {}).get(k[1])][TIGHT_DETAILS[fr]:]:
-            del s[sys_][attr]
-            if not s[sys_]:
-                del s[sys_]
+        for sys_, attr in cut:
+            if attr in s.get(sys_, {}):
+                del s[sys_][attr]
+                if not s[sys_]:
+                    del s[sys_]
         out[depth] = s
     return out
 NOT_DRAWN_MEDIA: set = set()                # media the validator cannot pass (none since tools 0.1.1)
@@ -118,6 +129,11 @@ def incoherent(spec: dict) -> list:
         why.append(f"heat shimmer at {tm}")
     if light == "silhouette" and any(r.get("rel") == "same colour as" for r in rels):
         why.append("a colour relation under a silhouette")
+    form = spec.get("form", {})
+    if spec.get("shot", {}).get("lens") and form.get("medium") and form["medium"] not in PHOTO_MEDIA | {"3d render", "digital painting"}:
+        why.append(f"a {spec['shot']['lens']} lens on a {form['medium']}")       # a lens is the camera's, not a lithograph's
+    if fr in TIGHT_FRAMING and form.get("compose") in WIDE_COMPOSE:
+        why.append(f"{form['compose']} at a {fr} framing")
     if spec.get("form", {}).get("medium") in NOT_DRAWN_MEDIA:
         why.append(f"medium {spec['form']['medium']}")
     return why
@@ -249,7 +265,7 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
         else:
             for _ in range(400):
                 specs = tighten(tp.sample_series(rng, lists))
-                if (not any(incoherent(s) for s in specs.values()) and not thin(specs["simple"], "simple")
+                if (nested(specs) and not any(incoherent(s) for s in specs.values()) and not thin(specs["simple"], "simple")
                         and not thin(specs["medium"], "medium") and tp.n_records(specs["deep"]) >= DEEP_MIN_DRAWN
                         and _medium_in_mix(specs["deep"], mix)):
                     break

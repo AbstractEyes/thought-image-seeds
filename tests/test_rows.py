@@ -55,6 +55,9 @@ def test_drawn_specs_pass_the_coherence_filter(tmp_path):
     assert incoherent({"shot": {"light": "high key"}, "scene": {"time": "blue hour"}})
     assert incoherent({"scene": {"weather": "heat shimmer", "time": "late evening"}})
     assert incoherent({"shot": {"light": "silhouette"}, "relation": [{"a": "hat", "rel": "same colour as", "b": "door"}]})
+    assert incoherent({"shot": {"lens": "anamorphic"}, "form": {"medium": "lithograph"}})
+    assert not incoherent({"shot": {"lens": "35mm"}, "form": {"medium": "3d render"}})
+    assert incoherent({"shot": {"framing": "extreme close"}, "form": {"compose": "frame in frame"}})
     from thought_seeds.rows import tighten
     series = {"medium": {"shot": {"framing": "macro"}, "look": {"hair": "afro", "expression": "blush"},
                          "relation": [{"a": "boy", "rel": "holding", "b": "cup"}]},
@@ -62,6 +65,14 @@ def test_drawn_specs_pass_the_coherence_filter(tmp_path):
     t = tighten(series)
     assert t["medium"] == {"shot": {"framing": "macro"}, "look": {"hair": "afro"}} and not incoherent(t["medium"])
     assert t["simple"] == series["simple"] and series["medium"]["look"]["expression"] == "blush"     # the input is not changed
+    # the cut is decided on the fullest rank and applied to all: the ranks stay nested
+    from thought_seeds.rows import nested
+    series = {"simple": {"wear": {"clothing": "uniform"}, "thing": {"name": "cup"}},
+              "medium": {"shot": {"framing": "macro"}, "wear": {"clothing": "uniform"}, "thing": {"name": "cup"}},
+              "deep": {"shot": {"framing": "macro"}, "look": {"hair": "afro"}, "wear": {"clothing": "uniform"}, "thing": {"name": "cup"}}}
+    assert nested(series)
+    t = tighten(series)
+    assert nested(t) and "wear" not in t["simple"] and "wear" not in t["medium"] and t["deep"]["look"] == {"hair": "afro"}
     path = draw(11, 40, 40, str(tmp_path), rng_seed=5)
     for line in open(path):
         it = json.loads(line)

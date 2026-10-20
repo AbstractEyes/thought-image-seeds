@@ -799,12 +799,15 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
         if v:
             sp.set("scene", key, v)
     n_anns = sum(len(g["boxes"]) + len(g.get("crowd_boxes", [])) for g in groups.values())
+    # the layout agrees with the counts the spec states (the captions can see more people than the boxes, or fewer)
+    pc, tc = sp.d.get("person", {}).get("count"), sp.d.get("thing", {}).get("count")
+    subjects = (int(pc) if pc and pc.isdigit() else 0 if pc is None else 99) + (int(tc) if tc and tc.isdigit() else 0 if tc is None else 99)
     layout = None
-    if P and (P["crowd"] or n_people >= 10):
+    if P and (P["crowd"] or n_people >= 10) and pc in ("many", "several", None):
         layout = "crowd"
-    elif n_anns == 1 and sum(g["area"] for g in groups.values()) >= 0.15:
+    elif n_anns == 1 and sum(g["area"] for g in groups.values()) >= 0.15 and subjects == 1:
         layout = "single subject"
-    elif n_anns == 2 and len(groups) == 1:
+    elif n_anns == 2 and len(groups) == 1 and subjects == 2:
         layout = "pair"
     elif not has_people and _vote([{"empty"} if re.search(r"\bempty (?:street|road|room|kitchen|bathroom|bedroom|field|beach|"
                                                            r"office|park|lot|parking lot|station|platform|restaurant)\b", c.t)
