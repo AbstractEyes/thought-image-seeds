@@ -525,6 +525,21 @@ def _plural(word: str, cat: str) -> bool:
             or (word.endswith("s") and word[:-1] in syn))
 
 
+def _said_one(caps: list, cat: str) -> bool:
+    """Every caption that names the category says one of it ('a parking meter', 'an orange dog'), never its plural, and two
+    captions or more do so."""
+    ones = 0
+    for c in caps:
+        spans = c.cats.get(cat, [])
+        if not spans:
+            continue
+        if any(_plural(c.t[s:e], cat) for s, e, _ in spans):
+            return False
+        if any(INTRODUCED.search(c.t[max(0, s - 24):s]) for s, e, _ in spans):
+            ones += 1
+    return ones >= 2
+
+
 def _thing_votes(caps: list, cat: str) -> list:
     """Per caption, the counts it states for the category: a number or a quantity word within 12 characters before its word
     ('two brown bears', 'dozens of green bananas'), or 2 when it says 'another' or 'each other' ('one bear grooming another')."""
@@ -756,7 +771,10 @@ def build(image_id, width: float, height: float, anns: list, captions: list, cat
         count = _vote(tvotes) or _box_count(n, g["crowd"])
         if count == "1" and sum(1 for c in caps if c.cats.get(main) and all(_plural(c.t[s:e], main) for s, e, _ in c.cats[main])) >= 2:
             count = "several"            # one box around a bunch: 'dozens of green bananas', 'a banana tree with multiple bunches'
-        sp.set("thing", "count", count)
+        elif count != "1" and not any(tvotes) and _said_one(caps, main):
+            count = None                 # every caption says 'a dog', the boxes say two (a second dog, a toy, a dog on a screen): unknown
+        if count:
+            sp.set("thing", "count", count)
         allb = g["boxes"] + g.get("crowd_boxes", [])
         pos = {maps.position_of((b[0] + b[2]) / 2) for b in allb}
         if len(pos) == 1:

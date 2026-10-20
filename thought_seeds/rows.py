@@ -44,6 +44,7 @@ STREET_LIT = {"market street", "alley", "bridge", "bus stop", "harbour", "pier",
 SKY_LIGHTS = {"hard sun", "golden", "dappled", "moonlight"}
 SKY_HOURS = {"dawn", "golden hour", "dusk", "blue hour"}                 # hours named by the colour of the sky
 WET_OR_WINDY = {"rain", "storm", "wind", "drizzle", "sleet", "snow"}
+DAY_HOURS = {"morning", "noon", "afternoon"}
 FLAT_THINGS = {"window", "mirror", "painting", "poster", "flag", "map", "sign"}     # nothing is 'inside' them
 DARK_HOURS = {"blue hour", "night", "midnight", "late evening"}
 WIDE_COMPOSE = {"frame in frame", "horizon high", "horizon low", "leading lines"}      # compositions a macro frame cannot hold
@@ -121,6 +122,8 @@ def incoherent(spec: dict) -> list:
         why.append(f"{sc['time']} in a {st}")                                  # the hour of the sky's colour, where no sky shows
     if light == "candle" and st and st not in INDOOR and sc.get("weather") in WET_OR_WINDY:
         why.append(f"candle light in {sc['weather']} at a {st}")
+    if light == "fluorescent" and st and st not in INDOOR and sc.get("time") in DAY_HOURS:
+        why.append(f"tube light at a {st} in the {sc['time']}")                 # daylight outdoors drowns a tube light
     if st in INDOOR and spec.get("form", {}).get("compose") in ("horizon high", "horizon low"):
         why.append(f"a horizon inside a {st}")
     for r in rels:
@@ -128,7 +131,7 @@ def incoherent(spec: dict) -> list:
             why.append(f"{r.get('a')} inside a {r['b']}")
     held = {r.get("b") for r in rels if r.get("rel") == "holding"}
     for r in rels:
-        if r.get("a") in held and r.get("rel") in ("inside", "on", "under"):
+        if r.get("a") in held and r.get("rel") in ("inside", "on", "under", "leaning on"):
             why.append(f"{r['a']} held and {r['rel']} a {r.get('b')}")              # a held cup is not also in a suitcase
     tm, wx = sc.get("time"), sc.get("weather")
     if light == "high key" and (tm in DARK_HOURS or wx in ("storm", "rain", "fog", "sleet")):

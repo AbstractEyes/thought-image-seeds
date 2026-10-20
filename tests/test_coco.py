@@ -130,6 +130,12 @@ def test_counts_follow_the_captions():
     caps = ["Brown dogs lying in the sun.", "Dozens of dogs in a field.", "A dog park with dogs.", "Dogs resting."]
     assert coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["thing"]["count"] == "several"
     assert coco._plural("dogs", "dog") and not coco._plural("dog", "dog") and coco._plural("buses", "bus")
+    # two dog boxes, every caption says 'a dog': the count is unknown, not two
+    ann = [(18, 100.0, 200.0, 200.0, 150.0, 0), (18, 400.0, 100.0, 60.0, 40.0, 0)]
+    caps = ["A woman lying on a sofa next to a dog.", "A woman and a dog on a couch.", "The woman and a dog are resting.",
+            "Girl playing with her dog."]
+    t = coco.build(free_id, 640, 480, ann, caps, cat_names, cat_super)["spec"]["thing"]
+    assert t["name"] == "dog" and "count" not in t
 
 
 def test_unshout_drops_all_capitals_sentences():
