@@ -1,11 +1,12 @@
 """thought_seeds.sources.aic - Art Institute of Chicago public API (artworks marked public domain) to seeds.
 
-The API's data is CC0 except the `description` field, which is CC BY 4.0 (credit: Art Institute of Chicago). A seed whose hint carries
-description text takes the license CC BY 4.0; a seed without it stays CC0. The records come from the catalogue fields: the style
-(form style), the medium display and the technique / material terms (form medium), the start and end years (form period), the
-artwork type (the domain), the subject terms (person, thing, setting, weather, time, angle, pose; the genre), and the colour terms
-with the API's one computed colour (form palette, only when two colours can be named). The hint is the description with every
-sentence that may hold a name dropped (a capitalized word past the first, or a first word that is not a plain word of the corpus).
+Only the API's CC0 data reaches a seed. The `description` field is CC BY 4.0 under the Terms and Conditions of artic.edu, and those
+Terms bar commercial use of the site's contents beyond what is labelled CC0; so the description is read only to keep names and
+explicit words out (its plain words help the name filter) and is never copied. The records come from the catalogue fields: the
+style (form style), the medium display and the technique / material terms (form medium), the start and end years (form period),
+the artwork type (the domain), the subject terms (person, thing, setting, weather, time, angle, pose; the genre), and the colour
+terms with the API's one computed colour (form palette, only when two colours can be named). The hint is built from the same CC0
+fields: the medium and the subject terms.
 
 The fetch is polite: one request a second, 100 artworks a request, at most MAX_ARTWORKS (6,000 for now): the public-domain
 artworks that carry a description (6,840 on 2026-10-19 of 62,119 public-domain works), in id order. The search API serves at most
@@ -23,26 +24,25 @@ from .. import core, maps
 from . import met
 
 DATASET = "aic"
-LICENSE = "CC0 1.0 (records); CC BY 4.0 (description hints)"
+LICENSE = "CC0 1.0"
 URL = "https://api.artic.edu/docs/"
 TERMS_URL = "https://www.artic.edu/terms"
-ATTRIBUTION = ("Art Institute of Chicago, public API (api.artic.edu), artworks endpoint: artwork data CC0 1.0, the description "
-               "field CC BY 4.0 (credit: Art Institute of Chicago), each under the Terms and Conditions of artic.edu "
-               f"({TERMS_URL}), as the API's own license notice states")
+ATTRIBUTION = ("Art Institute of Chicago, public API (api.artic.edu), artworks endpoint: the artwork data, CC0 1.0 under the Terms "
+               f"and Conditions of artic.edu ({TERMS_URL}), as the API's own license notice states; the CC BY 4.0 description "
+               "field is not used")
 CITATION = """@misc{artic_api,
   author       = {{Art Institute of Chicago}},
   title        = {Art Institute of Chicago Public API},
   year         = {2018},
   howpublished = {\\url{https://api.artic.edu/docs/}},
-  note         = {Artwork data under Creative Commons Zero (CC0 1.0); the description field under CC BY 4.0, credit Art Institute of
-                  Chicago; both under the Terms and Conditions of artic.edu; artworks with is_public_domain = true; accessed 2026-10-19}
+  note         = {Artwork data under Creative Commons Zero (CC0 1.0) and the Terms and Conditions of artic.edu; artworks with
+                  is_public_domain = true; accessed 2026-10-19}
 }"""
 TAKEN = ("records + hint: public-domain artworks from the search API (style_title, medium_display, technique / material / "
-         "classification terms, date_start / date_end, artwork_type_title, subject_titles, color, description); no artist or title "
-         "(the artist fields and the title are read only to find the names a description must not keep)")
-MODIFIED = ("modified by this dataset: catalogue values mapped to the dataset's closed lists; the hint is an excerpt of the CC BY "
-            "description, every sentence that may hold a name or speaks of the image as an image removed and the rest cut to fit "
-            "600 bytes, with medium and subject lines built from the CC0 fields")
+         "classification terms, date_start / date_end, artwork_type_title, subject_titles, color); no artist, title or "
+         "description (the artist fields, the title and the description are read only to keep names and explicit words out)")
+MODIFIED = ("modified by this dataset: catalogue values mapped to the dataset's closed lists; the hint is built from the CC0 "
+            "medium and subject fields")
 API = "https://api.artic.edu/api/v1/artworks/search"
 ARTWORK_URL = "https://www.artic.edu/artworks/{}"
 MAX_ARTWORKS = 6000
@@ -53,7 +53,7 @@ FIELDS = ("id,title,date_start,date_end,medium_display,artwork_type_title,classi
           "place_of_origin,artist_title,artist_titles,artist_display")
 ARTIST_FIELDS = ("artist_title", "artist_display")          # read only for the name filter (a batch fetched without them has none)
 COMPUTED_MIN_PERCENT = 3.0      # the computed colour's 'percentage' (a percent: it reaches 4.07 in the fetched data) to name it
-LIC_CC0, LIC_BY = "CC0 1.0", "CC BY 4.0"
+LIC_CC0 = "CC0 1.0"
 
 TYPE_DOMAIN = {"painting": "painting", "sculpture": "sculpture", "photograph": "photograph", "print": "illustration",
                "drawing and watercolor": "drawing", "book": "illustration", "architectural drawing": "illustration",
@@ -370,13 +370,8 @@ def build(a: dict, vocab: set, names: core.NameList | None = None):
     ss = met.subject_sentence(terms)
     if ss:
         parts.append(ss)
-    head = core.make_hint(parts)
-    # the description without image talk ('In this image, ...'), then without every sentence that may hold a name
-    desc = core.drop_named_strict(core.without_image_talk(strip_html(a.get("description") or "")), vocab, names=names, own=own)
-    desc = met.fit(desc, core.HINT_MAX - len(head) - 1)
-    hint = core.make_hint([desc, head] if desc else [head])
-    lic = LIC_BY if desc else LIC_CC0                   # the description text is CC BY 4.0; a seed without it stays CC0
-    return core.make_seed(DATASET, aid, domain, genre, s, hint, lic, ARTWORK_URL.format(aid),
+    hint = core.make_hint(parts)                          # CC0 fields only: the CC BY description is never copied
+    return core.make_seed(DATASET, aid, domain, genre, s, hint, LIC_CC0, ARTWORK_URL.format(aid),
                           min_records=1 if len(hint) >= 100 else 2)
 
 

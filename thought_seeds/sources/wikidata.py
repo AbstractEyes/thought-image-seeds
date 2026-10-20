@@ -32,7 +32,7 @@ import json
 import os
 import re
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from typing import Iterator
 
 from .. import core, maps, textspec
@@ -793,15 +793,13 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict, group: str 
             n = 1 if p["st"]["human"] else p["qty"]
             if n:
                 s.set("person", "count", str(n))
-        g = Counter()
-        for p in persons:
-            if p["gender"]:
-                g[p["gender"]] += p["qty"] or 1
-        order = ("woman", "man", "girl", "boy", "nonbinary")
-        gender = max(g, key=lambda k: (g[k], -order.index(k))) if g else None
+        # a gender only when it holds for every figure, as in the caption importers and the prompt parser: Mary, Joseph and the
+        # Christ Child have none, and neither has a scene that suggests more figures than the depicted ones
+        gs = [p["gender"] for p in persons]
+        gender = gs[0] if gs[0] and all(x == gs[0] for x in gs) and not more else None
         if gender:
             s.set("person", "gender", gender)
-        main = [p for p in persons if p["gender"] == gender] if gender else persons
+        main = persons
         ages = {p["age"] for p in main if p["age"]}
         if len(ages) == 1 and all(p["age"] for p in main):
             s.set("person", "age", ages.pop())

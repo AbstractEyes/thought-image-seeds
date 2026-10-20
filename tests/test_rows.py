@@ -140,3 +140,26 @@ def test_draw_thin_specs_domains_and_seeded_depths(tmp_path):
     assert seed_depth(rich) == "medium" and seed_depth(dict(rich, hint="")) == "simple"
     thin3 = {"spec": {"person": {"gender": "man", "count": "1"}, "thing": {"name": "dog"}}, "hint": "x" * 320}
     assert seed_depth(thin3) == "simple"                                    # three facts stay simple, whatever the hint
+
+
+def test_a_picture_two_sources_share_is_drawn_once(tmp_path):
+    from thought_seeds import io
+    from thought_seeds.rows import picture_of
+    spec = {"thing": {"name": "cup", "colour": "red"}, "scene": {"setting": "kitchen"}}
+
+    def seed(ds, sid):
+        return {"seed_id": f"{ds}:{sid}", "domain": "painting", "genre": "still life", "spec": spec, "hint": "",
+                "source": {"dataset": ds, "id": sid, "license": "CC0 1.0", "url": "https://example.org"}, "held": False}
+    for ds, sids in (("met", ["1", "2"]), ("wikidata", ["Q5"])):
+        d = tmp_path / "seeds" / ds
+        d.mkdir(parents=True)
+        (d / f"{ds}-00000.jsonl").write_text("".join(json.dumps(seed(ds, s)) + "\n" for s in sids))
+    (tmp_path / "seeds" / "wikidata" / "pictures.json").write_text(json.dumps({"wikidata:Q5": "met:1"}))
+    pics = io.pictures(str(tmp_path / "seeds"))
+    assert pics == {"wikidata:Q5": "met:1"} and picture_of(seed("wikidata", "Q5"), pics) == picture_of(seed("met", "1"), pics)
+    assert picture_of(seed("coco", "9")) == "coco-image:9"
+    for rng in range(4):
+        rows = tmp_path / f"rows{rng}" / "prod"
+        path = draw(40 + rng, 0, 2, str(rows), rng_seed=rng, seeds=[str(tmp_path / "seeds")])
+        got = {json.loads(line)["seed_id"] for line in open(path)}
+        assert "met:2" in got and len(got & {"met:1", "wikidata:Q5"}) == 1        # one row for the shared picture

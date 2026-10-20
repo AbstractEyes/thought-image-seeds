@@ -55,6 +55,8 @@ MAX_RELATIONS = 6
 HINT_MAX = 600
 HELD_PERCENT = 10                                   # of the seeds that use a sealed value, the share kept whole for the held split
 REJECTED: Counter = Counter()                       # make_seed's rejections by first problem (the build prints them per source)
+PICTURES: dict = {}                                 # seed id -> the picture it shares with another source (the build writes it)
+PICTURES_FILE = "pictures.json"
 
 
 def clean(s) -> str:
@@ -559,6 +561,8 @@ def make_seed(dataset: str, sid: str, domain: str, genre: str, spec: Spec | dict
         if probs:
             REJECTED[f"gate: {probs[0]}"[:90]] += 1
             return None
+    if group and group not in (seed_id, f"coco-image:{sid}"):
+        PICTURES[seed_id] = group                   # COCO's own family names its pictures by the image id already
     return out
 
 

@@ -19,7 +19,7 @@ from collections import Counter
 
 from . import core
 from .core import HELD, tp
-from .io import read_seeds
+from .io import pictures, read_seeds
 
 PILOT_DOMAINS = (("photograph", 0.45), ("painting", 0.25), ("illustration", 0.20), ("sculpture", 0.05), ("design", 0.05))
 PILOT_DEPTHS = (("simple", 0.30), ("medium", 0.45), ("deep", 0.25))
@@ -224,8 +224,12 @@ def thin(spec: dict, depth: str) -> bool:
 COCO_FAMILY = ("coco", "localized_narratives")
 
 
-def picture_of(seed: dict) -> str:
-    """The picture a seed describes: COCO captions and Localized Narratives share the COCO image ids."""
+def picture_of(seed: dict, pictures: dict | None = None) -> str:
+    """The picture a seed describes: COCO captions and Localized Narratives share the COCO image ids; `pictures` (io.pictures, from
+    the build's pictures.json files) names the picture another source shares (a Wikidata item a museum seed holds -> that museum
+    seed's id, a scene-graph image that is a COCO image -> its COCO image)."""
+    if pictures and seed["seed_id"] in pictures:
+        return pictures[seed["seed_id"]]
     ds = seed["source"]["dataset"]
     return f"coco-image:{seed['source']['id']}" if ds in COCO_FAMILY else seed["seed_id"]
 
@@ -289,7 +293,7 @@ def row_license(seed: dict | None) -> str:
     return PERMISSIVE_ROW
 
 
-def pictures_drawn(rows_dir: str, batch: int) -> set:
+def pictures_drawn(rows_dir: str, batch: int, pictures: dict | None = None) -> set:
     """The pictures (picture_of) of every seed already drawn into another batch's specs under rows_dir and its sibling folders."""
     import glob
     out = set()
@@ -302,7 +306,7 @@ def pictures_drawn(rows_dir: str, batch: int) -> set:
                 it = json.loads(line)
                 if it.get("seed_id"):
                     ds, _, sid = it["seed_id"].partition(":")
-                    out.add(picture_of({"seed_id": it["seed_id"], "source": {"dataset": ds, "id": sid}}))
+                    out.add(picture_of({"seed_id": it["seed_id"], "source": {"dataset": ds, "id": sid}}, pictures))
     return out
 
 
@@ -319,18 +323,19 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
     mix = tuple((d, float(w)) for d, w in (domains or {}).items()) or DRAWN_DOMAINS
     tot = sum(w for _, w in mix)
     mix = tuple((d, w / tot) for d, w in mix)
-    pool, used = None, set()
+    pool, used, pics = None, set(), {}
     if seeds:
         pool = [s for s in read_seeds(seeds, held=False) if tp.n_records(s["spec"]) >= 2]
         rng.shuffle(pool)
-        used = pictures_drawn(rows_dir, batch)                    # a picture seeds one row in the whole dataset, not one a batch
+        pics = pictures(seeds)
+        used = pictures_drawn(rows_dir, batch, pics)              # a picture seeds one row in the whole dataset, not one a batch
 
     def take(pred=lambda s: True):
         """The next seed of the pool that passes `pred` and whose picture is not in the batch yet (COCO captions and Localized
-        Narratives describe the same pictures)."""
+        Narratives describe the same pictures; so do a museum's work and its Wikidata item)."""
         for i in range(len(pool) - 1, -1, -1):
             s = pool[i]
-            g = picture_of(s)
+            g = picture_of(s, pics)
             if g not in used and pred(s):
                 used.add(g)
                 return pool.pop(i)

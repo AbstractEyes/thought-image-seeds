@@ -61,7 +61,8 @@ full builds run on a Colab CPU with the two notebooks above. Each run prints the
   bytes, and a key with its value fits 27 bytes. Keys with a closed vocabulary take only its values. Mood, intent and story are not
   facts of the source and are never in a seed.
 - `hint`: optional source text (at most 600 bytes) a writer may draw further facts from; sentences that may hold a real person's name
-  are removed.
+  are removed. DiffusionDB seeds carry none (their prompts are user-written: only the records are kept), and the Art Institute of
+  Chicago's hints are built from its CC0 catalogue fields.
 - `source`: the dataset, the item's id there, its license and its page. Every source allows derived and redistributed use with
   attribution (CC0, CC BY 4.0, ODC-By, Apache-2.0, MIT); see LICENSES.md and CITATIONS.bib in the dataset.
 - `held`: a tenth of the vocabulary is sealed for evaluation; a seed that uses a sealed value belongs to the held-out split.

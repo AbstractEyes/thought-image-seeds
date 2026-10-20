@@ -208,3 +208,15 @@ def test_cohere_keeps_an_age_only_for_one_fitting_person():
     assert core.cohere({"person": {"count": "1", "age": "child", "gender": "man"}}) == {"person": {"count": "1", "gender": "man"}}
     ok = {"person": {"count": "1", "age": "child", "gender": "girl"}}
     assert core.cohere(ok) == ok
+
+
+def test_a_shared_picture_is_recorded_for_the_build():
+    core.PICTURES.clear()
+    s = core.Spec()
+    s.set("thing", "name", "cup")
+    s.set("scene", "setting", "kitchen")
+    assert core.make_seed("wikidata", "Q5", "painting", "still life", s, "", "CC0 1.0", "https://www.wikidata.org/wiki/Q5",
+                          group="met:1")
+    assert core.make_seed("coco", "9", "photograph", "food", s, "", "CC BY 4.0", "https://cocodataset.org", group="coco-image:9")
+    assert core.PICTURES == {"wikidata:Q5": "met:1"}                    # COCO's own family needs no record
+    core.PICTURES.clear()

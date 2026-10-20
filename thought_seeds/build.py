@@ -58,11 +58,19 @@ def run(names, raw: str, out: str, limit: int | None = None, fetch: bool = False
         sh = core.Shards(out, m.DATASET)
         core.REJECTED.clear()
         core.COHERED.clear()
+        core.PICTURES.clear()
         for k, seed in enumerate(m.seeds(raw, limit=limit), 1):
             sh.add(seed)
             if k % 20000 == 0:
                 print(f"[{name}] {k} seeds, {time.time() - t1:.0f} s", flush=True)
         st = sh.close(dict(license=m.LICENSE, url=m.URL, taken=getattr(m, "TAKEN", ""), rejected=dict(core.REJECTED.most_common(20))))
+        pics = os.path.join(out, "seeds", m.DATASET, core.PICTURES_FILE)
+        if core.PICTURES:                  # the seeds whose picture another source describes too (read by rows.picture_of)
+            with open(pics, "w", encoding="utf-8", newline="\n") as fh:
+                json.dump(dict(sorted(core.PICTURES.items())), fh, indent=0)
+            print(f"[{name}] {len(core.PICTURES)} seeds share their picture with another source ({core.PICTURES_FILE})", flush=True)
+        elif os.path.exists(pics):
+            os.remove(pics)
         if core.COHERED:
             print(f"[{name}] facts removed as incoherent: {dict(core.COHERED)}", flush=True)
         if core.REJECTED:

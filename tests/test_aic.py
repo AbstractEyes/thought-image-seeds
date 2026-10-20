@@ -38,8 +38,8 @@ def test_aic_seeds(tmp_path):
                          "form": {"medium": "oil painting", "style": "impressionism", "palette": "blue and brown",
                                   "period": "19th century"}}
     assert "Caillebotte" not in p["hint"] and "Turner" not in p["hint"] and "Paris" not in p["hint"]
-    assert p["hint"].startswith("A man and a woman walk under one umbrella on the wet cobblestones.")
-    assert p["source"]["license"] == "CC BY 4.0"                      # the hint carries description text
+    assert p["hint"] == "Medium: oil on canvas. Subjects: cityscapes, umbrellas, rain, men."    # the CC BY description is not copied
+    assert p["source"]["license"] == "CC0 1.0"                        # the CC0 fields alone
     b = got["aic:7002"]
     assert b["domain"] == "design" and b["genre"] == "bowl"
     assert b["spec"] == {"thing": {"name": "bowl", "colour": "silver"}, "form": {"period": "baroque"}}
@@ -66,13 +66,13 @@ def _art(**kw):
     return a
 
 
-def test_description_hints_keep_no_name_fragment_or_image_talk():
+def test_the_description_never_reaches_the_hint():
     desc = ("<p>Gabriel Salmon cut the block in 1528. Salmon emphasized the violent action of the scene. In this image, a demigod "
             "wrestles a lion beneath a tree. A stamnos (pl. stamnoi) stands at the right. This image is one of a set. The print "
             "bears an ad monogram.</p>")
     seed = aic.build(_art(description=desc, subject_titles=["lions", "trees"]), core.corpus_vocab(["the lion and the tree"]))
-    assert "Salmon" not in seed["hint"] and "monogram" not in seed["hint"] and "image" not in seed["hint"].lower()
-    assert seed["hint"].startswith("A demigod wrestles a lion beneath a tree. A stamnos (pl. stamnoi) stands at the right.")
+    assert "Salmon" not in seed["hint"] and "demigod" not in seed["hint"] and "stamnos" not in seed["hint"]
+    assert seed["source"]["license"] == "CC0 1.0"
 
 
 def test_a_speck_of_computed_colour_is_no_palette():
