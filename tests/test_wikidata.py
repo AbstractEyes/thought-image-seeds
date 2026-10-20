@@ -165,6 +165,27 @@ def test_the_explicit_filter_reads_inside_labels_and_genres():
     assert wikidata.build("Q19", "painting", stmts, prop, TYPES) is not None            # an art nude is no explicit work
 
 
+def test_a_nude_never_beside_a_child():
+    stmts, prop = _work(_st("Q2", "nudity"), _st("Q3", "girl"), _st("Q726", "horse"))
+    assert wikidata.build("Q20", "painting", stmts, prop, TYPES) is None
+    stmts, prop = _work(_st("Q144", "dog"), _st("Q3", "putto"), _st("Q726", "horse"), genres="nude")
+    assert wikidata.build("Q20", "painting", stmts, prop, TYPES) is None
+    stmts, prop = _work(_st("Q301", "Sitter", human=True, sex=["Q6581072"], birth=[1640]), _st("Q2", "nudity"),
+                        _st("Q726", "horse"))
+    assert wikidata.build("Q20", "painting", stmts, prop, TYPES) is None                 # under 18 at the work's date (1650)
+    stmts, prop = _work(_st("Q2", "nudity"), _st("Q467", "woman"), _st("Q726", "horse"))
+    assert wikidata.build("Q20", "painting", stmts, prop, TYPES) is not None
+
+
+def test_a_named_figure_and_its_class_are_one_figure():
+    stmts, prop = _work(_st("Q400", "Mary", human=True, sex=["Q6581072"]), _st("Q467", "woman"), _st("Q726", "horse"))
+    hint = wikidata.build("Q21", "painting", stmts, prop, TYPES)["hint"]
+    assert "a woman" in hint and "women" not in hint                                     # 'Mary' and 'woman' may be one figure
+    stmts, prop = _work(_st("Q400", "Mary", human=True, sex=["Q6581072"]), _st("Q401", "Martha", human=True, sex=["Q6581072"]),
+                        _st("Q726", "horse"))
+    assert "women" in wikidata.build("Q22", "painting", stmts, prop, TYPES)["hint"]       # two named people
+
+
 def test_a_museum_work_is_routed_by_the_museum_seed_id(tmp_path):
     raw = str(tmp_path)
     os.makedirs(os.path.join(raw, "met"))

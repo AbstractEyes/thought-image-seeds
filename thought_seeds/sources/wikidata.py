@@ -8,7 +8,8 @@ Names never enter a seed: the creator is never queried; a depicted value whose E
 dropped; a depicted human individual (instance of Q5 or of Q20643955, a human biblical figure) is kept only as an anonymous figure,
 'a woman' or 'a man' from its sex (P21), a girl or a boy only when its label says child; no age is read from a birth date (P569),
 which serves only to withhold the gender of a sitter under 18 at the work's inception. Deities, mythological and fictional figures
-are dropped whole. Works whose depicted labels or genres speak of sex, genitals or prostitution are left out. Typing of the
+are dropped whole. Works whose depicted labels or genres speak of sex, genitals or prostitution are left out, and so are works
+that pair nudity with a child figure (a child, a putto, a sitter under 18 by the birth year). Typing of the
 depicted values (person, animal, plant, artifact, clothing, body part, landscape feature, food, creature) comes from their subclass
 and parent-taxon paths (P279 | P171) to a fixed set of roots; an activity, an event or an idea that this typing calls an artifact
 ('ice skating', 'prayer', 'philosophy') is never the thing.
@@ -113,6 +114,11 @@ EXPLICIT = re.compile(r"\b(sex|sexual\w*|\w*sexuality|lesbianism|erotic\w*|eroti
                       r"penis\w*|vulva\w*|vagina\w*|genital\w*|erection|coitus|copulation|intercourse|phall\w*|rape|raped|"
                       r"brothel\w*|prostitut\w*|courtesan\w*|seduction|seduc\w*|testicle\w*|scrotum|shunga|sex toy|dildo\w*|"
                       r"vibrator|butt plug|bondage|bdsm|fetish\w*|lingerie|striptease|stripper)\b")
+# nudity beside a child figure leaves the work out: no seed pairs a nude with a child, a putto or a sitter whom the birth year puts
+# under 18 at the work's date
+NUDITY = re.compile(r"\b(nude|nudes|nudity|naked|nakedness|topless|toplessness|bare-breasted|nude swimming|bathers?|bathing)\b")
+YOUNG = re.compile(r"\b(child|children|girl|girls|boy|boys|infant|infants|baby|babies|kid|kids|toddler|teen|teens|teenager|"
+                   r"teenagers|youth|youths|adolescent|adolescents|putto|putti|cherub|cherubs|cupid|cupids|amor|amorino|amorini)\b")
 ANATOMY = {"breast", "navel", "hip", "toe", "back", "buttocks", "nipple", "belly", "abdomen", "thigh", "knee", "leg", "foot", "hand",
            "arm", "shoulder", "neck", "face", "eye", "ear", "nose", "mouth", "lip", "lips", "finger", "chest", "torso", "skin", "head",
            "pubic hair", "armpit", "human body", "body", "human head", "human eye", "human hand", "human leg", "human face",
@@ -672,8 +678,8 @@ def _thing_rank(ty: set) -> int | None:
 
 
 def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict, group: str | None = None) -> dict | None:
-    """One work's seed, or None (no subject facts, a sexual act or genitals depicted, or too few records). `group`: the museum
-    seed id of the same artwork (museum_group), so both seeds make the same held / training choice."""
+    """One work's seed, or None (no subject facts, a sexual act or genitals depicted, nudity beside a child figure, or too few
+    records). `group`: the museum seed id of the same artwork (museum_group), so both seeds make the same held / training choice."""
     domain = kind
     year = _year(prop.get("inception"))
     try:
@@ -684,6 +690,10 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict, group: str 
     sts = sorted((s for s in stmts.values() if not s["nature"] and s["label"]), key=lambda s: int(s["d"][1:]))
     genres = [g for g in (prop.get("genres") or "").split("|") if g]
     if any(EXPLICIT.search(core.clean(s["label"])) for s in sts) or any(EXPLICIT.search(core.clean(g)) for g in genres):
+        return None
+    words = [core.clean(s["label"]) for s in sts] + [core.clean(g) for g in genres]
+    minor = any(s["human"] and year_known is not None and any(year_known - b < 18 for b in s["birth"]) for s in sts)
+    if any(NUDITY.search(w) for w in words) and (minor or any(YOUNG.search(w) for w in words)):
         return None
     persons, things, wear, details, depicted = [], [], [], [], []
     more = any(MORE_PEOPLE.search(core.clean(g)) for g in genres)      # something depicted suggests more persons than listed
@@ -878,12 +888,22 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict, group: str 
     genre = _genre(genres, domain)
     # the hint: plain sentences from the labels, no names
     groups: dict = {}
-    for p in persons:                                     # identical figures are named once, never summed: 'men', 'a woman'
+    for p in persons:                                     # one word a figure, never summed: 'men', 'a woman', 'three soldiers'
         w = p["word"] if not p["st"]["human"] else (p["gender"] or "figure")
-        groups.setdefault(w, []).append(None if p["st"]["human"] else p["qty"])
+        g = groups.setdefault(w, {"people": 0, "qty": []})
+        if p["st"]["human"]:
+            g["people"] += 1
+        else:
+            g["qty"].append(p["qty"])
     figures = []
-    for w, qs in groups.items():
-        figures.append(_counted(w, qs[0]) if len(qs) == 1 else _plural(w))   # 'three soldiers' only from a stated quantity
+    for w, g in groups.items():
+        stated = max((q for q in g["qty"] if q), default=None)
+        if g["people"] > 1:
+            figures.append(_plural(w))                    # two named people or more: 'men'
+        elif g["people"] == 1:                            # one named person; a class of the same word ('Mary' and 'woman') may be
+            figures.append(_counted(w, stated) if stated and stated > 1 else _article(w))   # the same figure: 'a woman'
+        else:
+            figures.append(_counted(w, g["qty"][0]) if len(g["qty"]) == 1 else _plural(w))
     objs = []
     for w in wear:
         c = core.clean(w["st"]["colour"] or "")
