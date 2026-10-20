@@ -6,13 +6,25 @@ position P2677 qualifiers), its genre (P136), movement (P135), material (P186) a
 
 Names never enter a seed: the creator is never queried; a depicted value whose English label holds a capital letter is a name and is
 dropped; a depicted human individual (instance of Q5 or of Q20643955, a human biblical figure) is kept only as an anonymous figure,
-'a woman' or 'a man' from its sex (P21), a girl or a boy when its label says child or its birth date (P569) puts it under 18 at the
-work's inception; deities, mythological and fictional figures are dropped whole. Works that depict a sexual act or genitals are left
-out. Typing of the depicted values (person, animal, plant, artifact, clothing, body part, landscape feature, food, creature) comes
-from their subclass and parent-taxon paths (P279 | P171) to a fixed set of roots.
+'a woman' or 'a man' from its sex (P21), a girl or a boy only when its label says child; no age is read from a birth date (P569),
+which serves only to withhold the gender of a sitter under 18 at the work's inception. Deities, mythological and fictional figures
+are dropped whole. Works whose depicted labels or genres speak of sex, genitals or prostitution are left out, and so are works
+that pair nudity with a child figure (a child, a putto, a sitter under 18 by the birth year). Typing of the
+depicted values (person, animal, plant, artifact, clothing, body part, landscape feature, food, creature) comes from their subclass
+and parent-taxon paths (P279 | P171) to a fixed set of roots; an activity, an event or an idea that this typing calls an artifact
+('ice skating', 'prayer', 'philosophy') is never the thing.
+
+The person count is set only when the source states it: one when exactly one person is depicted and nothing else depicted
+suggests more (a group, a crowd, another figure), or the quantity (P1114) of the one depicted person class; the depicts statements
+are never summed. The European era names (medieval, renaissance, baroque) are given only to a work whose country of origin (P495)
+or culture (P2596) is European; without those statements a work gets no era name. A work held by a museum that is a source of its
+own (the Met, the Art Institute of Chicago, the National Gallery of Art, the Cleveland Museum of Art) is routed with that museum's
+seed id as its group, so the two seeds of one artwork land on the same side of the held split; the link comes from the museum
+ids that Wikidata states (P3634, P4610, P4683) or from the Wikidata ids that the museums' own open data states.
 
 fetch() runs paged SPARQL queries against the Wikidata Query Service (each a few seconds, well under its 60 s limit) and keeps every
-result as JSON under raw/wikidata/; seeds() reads those files only."""
+result as JSON under raw/wikidata/; seeds() reads those files only (and, for the routing links, the museums' raw files when they
+are present beside them)."""
 from __future__ import annotations
 
 import hashlib
@@ -41,8 +53,10 @@ CITATION = """@article{vrandecic2014wikidata,
   doi     = {10.1145/2629489}
 }"""
 TAKEN = ("records + hint: the depicts statements (P180, with quantity, colour and relative-position qualifiers), genre (P136), "
-         "movement (P135), material (P186) and inception (P571) of paintings and sculptures, English labels; never the creator; "
-         "named people only as an anonymous woman / man / girl / boy (sex P21, age from birth P569); no names")
+         "movement (P135), material (P186), inception (P571), country of origin (P495) and culture (P2596) of paintings and "
+         "sculptures, English labels; never the creator; named people only as an anonymous woman / man / nonbinary figure (sex "
+         "P21), a girl or a boy only when the label says child, no age from a birth date; a person count only when stated, never "
+         "summed; no names")
 
 SPARQL = "https://query.wikidata.org/sparql"
 USER_AGENT = ("thought-seeds/0.1 (seed importer for the public dataset AbstractPhil/thought-symbolic-image-captions; "
@@ -78,13 +92,33 @@ Q_PROPS = """SELECT ?item (GROUP_CONCAT(DISTINCT ?gl; separator="|") AS ?genres)
  OPTIONAL { ?item wdt:P186 ?a . ?a rdfs:label ?al . FILTER(LANG(?al) = "en") }
  OPTIONAL { ?item p:P571/psv:P571 ?iv . ?iv wikibase:timeValue ?inc ; wikibase:timePrecision ?prec }
 } GROUP BY ?item"""
+# a work's country of origin and culture (English labels), and the object ids the museums among the sources give it: the Met
+# (P3634), the Art Institute of Chicago (P4610), the National Gallery of Art (P4683)
+Q_ORIGIN = """SELECT ?item (GROUP_CONCAT(DISTINCT ?ol; separator="|") AS ?countries) (GROUP_CONCAT(DISTINCT ?cl; separator="|") AS ?cultures)
+ (GROUP_CONCAT(DISTINCT ?met; separator="|") AS ?met) (GROUP_CONCAT(DISTINCT ?aic; separator="|") AS ?aic)
+ (GROUP_CONCAT(DISTINCT ?nga; separator="|") AS ?nga) WHERE {
+ VALUES ?item { %s }
+ OPTIONAL { ?item wdt:P495 ?o . ?o rdfs:label ?ol . FILTER(LANG(?ol) = "en") }
+ OPTIONAL { ?item wdt:P2596 ?c . ?c rdfs:label ?cl . FILTER(LANG(?cl) = "en") }
+ OPTIONAL { ?item wdt:P3634 ?met }
+ OPTIONAL { ?item wdt:P4610 ?aic }
+ OPTIONAL { ?item wdt:P4683 ?nga }
+} GROUP BY ?item"""
 Q_TYPES = "SELECT ?d ?root WHERE { VALUES ?d { %s } VALUES ?root { %s } ?d (wdt:P279|wdt:P171)* ?root . }"
 Q_DEATHS = "SELECT ?d (MIN(?death) AS ?dd) WHERE { VALUES ?d { %s } ?d wdt:P570 ?death . } GROUP BY ?d"
 
 # ------------------------------------------------------------------ word maps of this source (Wikidata's English labels)
-EXPLICIT = {"sexual intercourse", "sexual activity", "sex", "erotica", "erotic art", "pornography", "masturbation", "fellatio",
-            "cunnilingus", "orgy", "penis", "human penis", "vulva", "human vulva", "vagina", "female genitalia", "male genitalia",
-            "genitalia", "erection", "sexual act", "rape", "coitus", "copulation", "phallus"}
+# a depicted label or a genre holding one of these words or phrases leaves the work out (matched inside a label: 'erotic dance',
+# 'human sexuality', 'The Rape of ...')
+EXPLICIT = re.compile(r"\b(sex|sexual\w*|\w*sexuality|lesbianism|erotic\w*|eroticism|porn\w*|masturbat\w*|fellatio|cunnilingus|orgy|orgies|"
+                      r"penis\w*|vulva\w*|vagina\w*|genital\w*|erection|coitus|copulation|intercourse|phall\w*|rape|raped|"
+                      r"brothel\w*|prostitut\w*|courtesan\w*|seduction|seduc\w*|testicle\w*|scrotum|shunga|sex toy|dildo\w*|"
+                      r"vibrator|butt plug|bondage|bdsm|fetish\w*|lingerie|striptease|stripper)\b")
+# nudity beside a child figure leaves the work out: no seed pairs a nude with a child, a putto or a sitter whom the birth year puts
+# under 18 at the work's date
+NUDITY = re.compile(r"\b(nude|nudes|nudity|naked|nakedness|topless|toplessness|bare-breasted|nude swimming|bathers?|bathing)\b")
+YOUNG = re.compile(r"\b(child|children|girl|girls|boy|boys|infant|infants|baby|babies|kid|kids|toddler|teen|teens|teenager|"
+                   r"teenagers|youth|youths|adolescent|adolescents|putto|putti|cherub|cherubs|cupid|cupids|amor|amorino|amorini)\b")
 ANATOMY = {"breast", "navel", "hip", "toe", "back", "buttocks", "nipple", "belly", "abdomen", "thigh", "knee", "leg", "foot", "hand",
            "arm", "shoulder", "neck", "face", "eye", "ear", "nose", "mouth", "lip", "lips", "finger", "chest", "torso", "skin", "head",
            "pubic hair", "armpit", "human body", "body", "human head", "human eye", "human hand", "human leg", "human face",
@@ -99,6 +133,61 @@ CONCEPT = {"portrait", "landscape", "landscape painting", "gaze towards the view
            "interior", "interior view", "religious art", "history painting", "symbol", "iconography", "nature", "time",
            "fabric", "textile", "object", "thing", "decoration", "ornament", "pattern", "motif", "color", "colour", "air",
            "darkness", "reflection", "space", "nude", "female nude", "male nude"}
+# activities, events, disciplines and ideas that the subclass tree types as artifacts (a game, a dance, a science): never the thing;
+# an activity is kept as a plain detail of the hint ('Also shown: ice skating')
+ACTIVITIES = {"prayer", "crucifixion", "old age", "profile", "game", "contre-jour", "folk dance", "blessing", "decapitation",
+              "interior space", "stripe", "arabesque", "donor portrait", "history", "poetry", "ancient history", "philosophy",
+              "ballet", "religion", "beauty", "chess", "empire", "card game", "medicine", "comedy", "paganism", "astronomy",
+              "court decision", "genre painting", "order", "magic", "rugby", "tennis", "diplomacy", "boxing", "sport", "satire",
+              "hygiene", "sale", "melancholia", "stoning", "gallantry", "ice hockey", "curling", "archaeology", "achievement",
+              "sledding", "flaying", "art collection", "ethnography", "waltz", "combined driving", "literature", "art",
+              "performance", "hiking", "state visit", "diving", "tragedy", "skating", "dengaku", "winter sport", "number theory",
+              "strife", "cycling", "snowball fight", "minuet", "creation myth", "water jousting", "cockfight", "gender identity",
+              "surgery", "benevolence", "vaccination", "animal husbandry", "greyhound racing", "quest", "hirsutism",
+              "acrobatics", "radiesthesia", "death by burning", "iconoclasm", "military science", "constitution", "palmistry",
+              "human rights", "independence", "play", "public lecture", "anatomy", "nursing", "raqs sharqi", "will", "idealism",
+              "treaty", "oath", "gymnastics", "salah", "pardon", "pedicure", "economics", "sheep herding", "snakebite", "fado",
+              "body painting", "autopsy", "lottery", "kermesse", "statute", "grammar", "flamenco", "bocce", "rock music", "opera",
+              "proverb", "supplication", "rowing", "transparency", "marine art", "back portrait", "profil perdu", "orans",
+              "tonsure", "hair tying styles", "recovery position", "fist", "signature", "motto", "thought bubble", "zodiac",
+              "cuneiform", "calligraphic work", "dance", "music", "hunting", "fishing", "war", "battle", "work", "trade",
+              "commerce", "education", "science", "mathematics", "geometry", "arithmetic", "rhetoric", "logic", "law", "justice",
+              "charity", "vanity", "virtue", "vice", "sin", "faith", "hope", "temperance", "prudence", "fortitude", "wisdom",
+              "knowledge", "truth", "fame", "victory", "peace", "fortune", "time", "eternity", "life", "youth", "childhood",
+              "motherhood", "marriage", "wedding", "funeral", "burial", "baptism", "martyrdom", "resurrection", "annunciation",
+              "nativity", "assumption", "lamentation", "deposition", "adoration", "visitation", "flight", "pilgrimage",
+              "procession", "celebration", "festival", "feast", "party", "meal", "breakfast", "dinner", "supper", "conversation",
+              "lecture", "lesson", "concert", "theatre", "theater", "carnival", "masquerade", "market", "auction", "harvest",
+              "agriculture", "industry", "transport", "travel", "navigation", "exploration", "colonialism", "slavery", "poverty",
+              "wealth", "power", "love", "death", "sleep", "dream", "memory", "emotion", "solitude", "loneliness", "joy", "grief",
+              "sorrow", "mourning", "fear", "anger", "pain", "illness", "disease", "plague", "famine", "flood", "fire safety"}
+CONCRETE_ING = {"building", "painting", "drawing", "clothing", "ceiling", "railing", "ring", "string", "wing", "earring",
+                "stocking", "stockings", "bedding", "carving", "engraving", "etching", "awning", "siding", "dwelling", "pudding",
+                "icing", "offering", "sibling", "duckling", "gosling", "seedling", "sapling", "herring", "whiting", "king",
+                "sling", "swing", "spring", "lightning", "lining", "molding", "moulding", "flooring", "roofing", "mooring",
+                "piping", "tubing", "wiring", "frosting", "filling", "stuffing", "dumpling", "gelding", "yearling", "fledgling",
+                "starling", "bunting", "landing", "farthing", "shilling", "darling", "evening", "morning", "fitting",
+                "covering", "planking", "printing press", "sewing needle", "fishing net", "fishing rod", "fishing vessel",
+                "sailing ship", "drawing room", "dining room", "living room", "wedding cake", "knitting needle", "spinning wheel",
+                "writing case", "rowing boat", "rocking horse", "hunting dog", "herding dog", "pointing dog", "milking stool",
+                "dressing table", "bathing site", "bathing machine", "steering wheel", "folding chair", "hanging lamp",
+                "church building", "city building", "office building", "farm building", "covered building"}
+_NOT_A_THING = re.compile(r"(?:ing|ism|ics|ology|osophy|graphy|ness|ity|hood|ation|ition|ution|ance|ence)$")
+
+
+def _not_a_thing(low: str) -> bool:
+    """An activity, an event, a discipline or an idea the typing calls an artifact: never the picture's thing."""
+    if low in ACTIVITIES:
+        return True
+    if low in CONCRETE_ING:
+        return False
+    last = low.split()[-1]
+    m = _NOT_A_THING.search(last)
+    return last not in CONCRETE_ING and bool(m) and len(last) > len(m.group(0)) + 2 and last not in (
+        "fortification", "foundation", "station", "decoration", "illustration", "installation", "construction", "plantation",
+        "habitation", "fence", "lance", "residence", "ambulance", "balance", "appliance", "pittance", "entrance", "nuance",
+        "furnace", "palace", "terrace", "license", "fortress", "dress", "harness", "mattress", "press", "city", "university",
+        "facility", "commodity", "antiquity", "nativity scene", "trinity")
 NATURE = {"sky", "cloud", "clouds", "sea", "water", "fire", "smoke", "rock", "moon", "star", "rainbow", "wave", "wind wave", "horizon",
           "sun", "sunlight", "drapery", "flame", "lightning", "ice", "sand", "grass"}     # untyped or landscape words kept for the hint
 GENDER_EXTRA = {"mother": "woman", "father": "man", "nun": "woman", "monk": "man", "king": "man", "queen": "woman", "bride": "woman",
@@ -108,6 +197,29 @@ GENDER_EXTRA = {"mother": "woman", "father": "man", "nun": "woman", "monk": "man
                 "old man": "man", "old woman": "woman", "young man": "man", "young woman": "woman", "female nude": "woman",
                 "male nude": "man", "lady": "woman", "princess": "woman", "prince": "man", "peasant woman": "woman",
                 "fisherwoman": "woman", "washerwoman": "woman", "servant girl": "girl", "schoolgirl": "girl", "schoolboy": "boy"}
+PERSON_LABELS = {"female human": "woman", "male human": "man", "pregnant person": None, "human figure": None}   # typed as animals
+# depicted labels (a name's too) and genres that suggest more persons than the depicts list names: no person count
+MORE_PEOPLE = re.compile(r"\b(crowds?|groups?|famil(?:y|ies)|couples?|people|persons|humans|children|men|women|boys|girls|armies|"
+                         r"army|troops|soldiers|regiment|procession|assembly|congregation|audience|spectators|choir|orchestra|"
+                         r"band|team|crew|council|congress|senate|parliament|court|apostles|disciples|saints|magi|kings|"
+                         r"evangelists|brothers|sisters|sons|daughters|twins|lovers|dancers|musicians|players|riders|hunters|"
+                         r"knights|monks|nuns|shepherds|virgins|martyrs|innocents|battle|siege|massacre|wedding|feast|banquet|"
+                         r"meeting|gathering|market|concert|mob|riot|parade|group portrait|family portrait|conversation piece|"
+                         r"militia|schutterstuk)\b")
+# an untyped depicted label that names a person ('postilion'): one more figure than the typed persons
+PERSON_ROLE_WORDS = {"postilion", "coachman", "servant", "page", "horseman", "huntsman", "hunter", "shepherd", "peasant",
+                     "fisherman", "sailor", "musician", "beggar", "merchant", "pilgrim", "traveller", "traveler", "farmer", "maid",
+                     "cook", "saint", "apostle", "disciple", "martyr", "monk", "nun", "priest", "bishop", "pope", "cardinal",
+                     "king", "queen", "prince", "princess", "knight", "warrior", "soldier", "rider", "jockey", "groom", "valet",
+                     "footman", "guard", "sentry", "porter", "vendor", "seller", "child", "infant", "baby", "youth", "elder",
+                     "worker", "labourer", "laborer", "miner", "smith", "blacksmith", "carpenter", "painter", "sculptor", "artist",
+                     "model", "dancer", "singer", "player", "actor", "actress", "clown", "jester", "dwarf", "slave", "prisoner",
+                     "executioner", "nurse", "doctor", "scholar", "student", "teacher", "philosopher", "poet", "writer", "reader"}
+
+
+def _names_a_person(low: str) -> bool:
+    return (low in PERSON_ROLE_WORDS or low in GENDER_EXTRA or low in maps.GENDER or low in maps.AGE or low in maps.ROLE or
+            low in textspec.PERSON_WORDS or bool(re.search(r"(man|men|woman|women)$", low)))
 HAIR = {"long hair": "long", "waist-length hair": "long", "shoulder-length hair": "long", "short hair": "short", "curly hair": "curly",
         "straight hair": "straight", "wavy hair": "wavy", "braid": "braided", "braids": "braided", "braided hair": "braided",
         "hair bun": "bun", "bun": "bun", "chignon": "bun", "ponytail": "ponytail", "bangs": "bangs", "fringe": "bangs", "afro": "afro",
@@ -192,6 +304,73 @@ def _year(ts: str | None) -> int | None:
     return -y if m.group(1) == "-" else y
 
 
+# ------------------------------------------------------------------ where a work comes from
+# the English labels of the countries, states and cultures of the European tradition (a country of origin or a culture statement)
+EUROPEAN = re.compile(
+    r"\b(europe|european|italy|italian|france|french|netherlands|dutch|holland|flanders|flemish|belgium|belgian|spain|spanish|"
+    r"castile|aragon|portugal|portuguese|germany|german|prussia|bavaria|saxony|holy roman empire|austria|austrian|habsburg|"
+    r"bohemia|czech|czechia|poland|polish|hungary|hungarian|switzerland|swiss|england|english|great britain|united kingdom|"
+    r"british|scotland|scottish|wales|welsh|ireland|irish|denmark|danish|norway|norwegian|sweden|swedish|finland|finnish|"
+    r"iceland|icelandic|russia|russian|ukraine|ukrainian|greece|greek|byzantine|venice|venetian|republic of venice|florence|"
+    r"florentine|genoa|milan|naples|papal states|siena|sienese|tuscany|lombardy|burgundy|burgundian|savoy|serbia|croatia|"
+    r"romania|bulgaria|lithuania|latvia|estonia|slovakia|slovenia|luxembourg|monaco|malta|lorraine|brabant|limousin|"
+    r"rhineland|westphalia|franconia|swabia|tyrol|catalonia|catalan|navarre|sicily|sardinia|corsica|crete)\b")
+NON_EUROPEAN = re.compile(
+    r"\b(china|chinese|japan|japanese|korea|korean|india|indian|mughal|persia|persian|iran|ottoman|turkey|turkish|egypt|egyptian|"
+    r"syria|iraq|arab|islamic|tibet|tibetan|nepal|thai|thailand|cambodia|khmer|vietnam|indonesia|java|burma|mexico|mexican|aztec|"
+    r"maya|inca|peru|peruvian|brazil|argentina|colombia|chile|united states|american|canada|canadian|australia|australian|"
+    r"new zealand|maori|africa|african|ethiopia|nigeria|congo|hawaii|philippines|mongol|mongolia|asia|asian|oceania|"
+    r"pre-columbian|native american|qing|ming|edo|joseon|safavid|seljuk|mamluk|fatimid|abbasid|umayyad|nasrid)\b")
+
+
+def _european(origin: dict | None) -> bool:
+    """Whether the work's country of origin or culture statements place it in the European tradition (and none outside it)."""
+    labels = core.clean(" | ".join((origin or {}).get("countries", []) + (origin or {}).get("cultures", [])))
+    return bool(EUROPEAN.search(labels)) and not NON_EUROPEAN.search(labels)
+
+
+# ------------------------------------------------------------------ the same artwork in a museum source: one routing group
+MUSEUMS = ("met", "aic", "nga", "cleveland")                  # the museum sources, in the order a link is chosen
+
+
+def museum_group(origin: dict | None, links: dict | None, qid: str) -> str | None:
+    """The museum seed id ('met:<Object ID>', 'aic:<id>', 'nga:<objectid>', 'cleveland:<id>') of the work, when Wikidata gives the
+    museum's object id (`origin`) or the museum's own data gives the work's Wikidata id (`links`); the first museum in MUSEUMS and
+    its smallest object id when there are several."""
+    for museum in MUSEUMS:
+        ids = [i for i in (origin or {}).get(museum, []) if re.fullmatch(r"\d+", i)]
+        ids += [i for i in (links or {}).get(qid, {}).get(museum, [])]
+        if ids:
+            return f"{museum}:{min(ids, key=int)}"
+    return None
+
+
+def museum_links(raw_dir: str) -> dict:
+    """{qid: {museum: [object id]}}: the Wikidata ids that the museums' own open data gives their objects (the Met's 'Object
+    Wikidata URL', the National Gallery of Art's 'wikidataid', the Cleveland Museum of Art's 'external_resources'), read from
+    their raw files when they are present under raw_dir; an empty map otherwise."""
+    import csv
+    csv.field_size_limit(2 ** 31 - 1)
+    out: dict = {}
+
+    def add(qid, museum, oid):
+        if re.fullmatch(r"Q\d+", qid or "") and re.fullmatch(r"\d+", oid or ""):
+            out.setdefault(qid, {}).setdefault(museum, []).append(oid)
+
+    for museum, name, oid_col, link_col in (("met", os.path.join("met", "MetObjects.csv"), "Object ID", "Object Wikidata URL"),
+                                            ("nga", os.path.join("nga", "objects.csv"), "objectid", "wikidataid"),
+                                            ("cleveland", os.path.join("cleveland", "data.csv"), "id", "external_resources")):
+        path = os.path.join(raw_dir, name)
+        if not os.path.exists(path):
+            continue
+        pat = re.compile(r"wikidata\.org/(?:wiki|entity)/(Q\d+)\b" if museum != "nga" else r"^\s*(Q\d+)\s*$")
+        with open(path, encoding="utf-8-sig", newline="") as fh:
+            for row in csv.DictReader(fh):
+                for qid in pat.findall(row.get(link_col) or ""):
+                    add(qid, museum, (row.get(oid_col) or "").strip())
+    return out
+
+
 # ------------------------------------------------------------------ fetching (SPARQL, kept as JSON; idempotent by file)
 def _post(query: str) -> bytes:
     import requests
@@ -253,8 +432,9 @@ def _select(raw: str, got: dict) -> list:
 
 
 def fetch(raw_dir: str) -> dict:
-    """The works list, then per batch of 500 works their depicts and their genre / movement / material / inception, then the
-    typing of every lower-case depicted value. -> {file: bytes}."""
+    """The works list, then per batch of 500 works their depicts, their genre / movement / material / inception, and their
+    country of origin / culture / museum object ids (origin_NNNN.json), then the typing of every lower-case depicted value.
+    -> {file: bytes}. Every answer is kept; a run fetches only the files that are missing."""
     raw = os.path.join(raw_dir, DATASET)
     os.makedirs(raw, exist_ok=True)
     got: dict = {}
@@ -267,6 +447,7 @@ def fetch(raw_dir: str) -> dict:
         vals = " ".join("wd:" + q for q in chunk)
         dep = _cached(os.path.join(raw, f"depicts_{b:04d}.json"), Q_DEPICTS % vals, got)
         _cached(os.path.join(raw, f"props_{b:04d}.json"), Q_PROPS % vals, got)
+        _cached(os.path.join(raw, f"origin_{b:04d}.json"), Q_ORIGIN % vals, got)
         for r in _rows(dep):
             lab = r.get("dLabel", "")
             if r.get("human") == "true":
@@ -295,8 +476,8 @@ def fetch(raw_dir: str) -> dict:
             el = time.time() - t0
             print(f"[wikidata] typing batch {b + 1}/{len(vb)}, {el:.0f} s spent, about {el / (b + 1) * (len(vb) - b - 1):.0f} s left",
                   flush=True)
-    hpath = os.path.join(raw, "humans.json")                 # the depicted human individuals: their death year (P570), so an
-    if os.path.exists(hpath):                                # age is read from the birth year only for a person alive at the work
+    hpath = os.path.join(raw, "humans.json")                 # the depicted human individuals and their death year (P570), kept
+    if os.path.exists(hpath):                                # with the answers (no age is read from a birth or a death date)
         with open(hpath, encoding="utf-8") as fh:
             hlist = json.load(fh)
     else:
@@ -350,7 +531,12 @@ def _load(raw: str):
         elif name.startswith("props_") and name.endswith(".json"):
             with open(path, encoding="utf-8") as fh:
                 for r in _rows(json.load(fh)):
-                    props[_qid(r["item"])] = r
+                    props.setdefault(_qid(r["item"]), {}).update(r)
+        elif name.startswith("origin_") and name.endswith(".json"):
+            with open(path, encoding="utf-8") as fh:
+                for r in _rows(json.load(fh)):
+                    props.setdefault(_qid(r["item"]), {})["origin"] = {
+                        k: [x for x in (r.get(k) or "").split("|") if x] for k in ("countries", "cultures", "met", "aic", "nga")}
         elif name.startswith("types_") and name.endswith(".json"):
             with open(path, encoding="utf-8") as fh:
                 for r in _rows(json.load(fh)):
@@ -400,14 +586,16 @@ def _counted(word: str, n: int | None) -> str:
     return f"{NUMBER.get(n, str(n))} {_plural(word)}"
 
 
-def _period(year: int | None, precision: int | None) -> str | None:
+def _period(year: int | None, precision: int | None, western: bool = False) -> str | None:
+    """The period of the work's inception; the European era names (medieval, renaissance, baroque) only for a work of the
+    European tradition (`western`, from its country of origin or culture statements: _european)."""
     if year is None or precision is None:
         return None
     if precision >= 8:
-        return maps.period_of(year)
+        return maps.period_of(year, western=western)
     if precision == 7 and year > 0 and year % 100:            # a century: kept only when the whole century falls in one period
         lo = (year // 100) * 100 + 1
-        a, b = maps.period_of(lo), maps.period_of(lo + 98)
+        a, b = maps.period_of(lo, western=western), maps.period_of(lo + 98, western=western)
         return a if a == b else None
     return None
 
@@ -442,20 +630,11 @@ def _genre(labels: list, domain: str) -> str:
     return short[0] if short else domain
 
 
-def _age_word(age: int) -> str | None:
-    if age < 2:
-        return "baby"
-    if age < 13:
-        return "child"
-    if age < 20:
-        return "teen"
-    if age < 70:
-        return f"{age // 10 * 10}s" if age < 60 else "60s"
-    return "elderly"
-
-
 def _person_of(st: dict, year: int | None) -> dict | None:
-    """A depicted value as a person: an anonymous figure for a human individual, the label's words for a person class."""
+    """A depicted value as a person: an anonymous figure for a human individual, the label's words for a person class. A human
+    individual's gender is its sex (P21): a woman, a man; a girl or a boy only when its label says child. No age is read from a
+    birth date; a birth date that puts the sitter under 18 at the work's date (or after it) withholds the gender, as neither
+    'man' nor 'boy' is then stated."""
     lab = st["label"]
     low = core.clean(lab)
     if st["human"]:
@@ -464,17 +643,14 @@ def _person_of(st: dict, year: int | None) -> dict | None:
         age = None
         if re.search(r"\b(child|infant|baby)\b", low):
             age = "baby" if re.search(r"\b(infant|baby)\b", low) else "child"
-        elif year is not None and len(st["birth"]) == 1:
-            a = year - next(iter(st["birth"]))
-            death = st.get("death")
-            alive = (death is not None and death >= year) or (death is None and a <= 100)
-            if 0 <= a <= 105 and alive:                       # a posthumous work does not show its sitter at that age
-                age = _age_word(a)
-                if a < 18 and gender in ("man", "woman"):
-                    gender = "boy" if gender == "man" else "girl"
-        if age in ("child", "baby") and gender in ("man", "woman"):
-            gender = "boy" if gender == "man" else "girl"
+            if gender in ("man", "woman"):
+                gender = "boy" if gender == "man" else "girl"
+        elif year is not None and any(year - b < 18 for b in st["birth"]):
+            gender = None
         return {"gender": gender, "age": age, "role": None, "qty": 1, "word": gender or "figure", "st": st}
+    if low in PERSON_LABELS:
+        return {"gender": PERSON_LABELS[low], "age": None, "role": None, "qty": st["qty"], "word": PERSON_LABELS[low] or "figure",
+                "st": st}
     gender = GENDER_EXTRA.get(low) or maps.first(low, maps.GENDER)
     age = maps.first(low, maps.AGE)
     if low in ("infant", "baby", "newborn"):
@@ -501,8 +677,9 @@ def _thing_rank(ty: set) -> int | None:
     return None
 
 
-def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict) -> dict | None:
-    """One work's seed, or None (no subject facts, a sexual act or genitals depicted, or too few records)."""
+def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict, group: str | None = None) -> dict | None:
+    """One work's seed, or None (no subject facts, a sexual act or genitals depicted, nudity beside a child figure, or too few
+    records). `group`: the museum seed id of the same artwork (museum_group), so both seeds make the same held / training choice."""
     domain = kind
     year = _year(prop.get("inception"))
     try:
@@ -512,9 +689,16 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict) -> dict | N
     year_known = year if precision is not None and precision >= 9 else None
     sts = sorted((s for s in stmts.values() if not s["nature"] and s["label"]), key=lambda s: int(s["d"][1:]))
     genres = [g for g in (prop.get("genres") or "").split("|") if g]
-    if any(core.clean(s["label"]) in EXPLICIT for s in sts) or any(core.clean(g) in EXPLICIT for g in genres):
+    if any(EXPLICIT.search(core.clean(s["label"])) for s in sts) or any(EXPLICIT.search(core.clean(g)) for g in genres):
+        return None
+    words = [core.clean(s["label"]) for s in sts] + [core.clean(g) for g in genres]
+    minor = any(s["human"] and year_known is not None and any(year_known - b < 18 for b in s["birth"]) for s in sts)
+    if any(NUDITY.search(w) for w in words) and (minor or any(YOUNG.search(w) for w in words)):
         return None
     persons, things, wear, details, depicted = [], [], [], [], []
+    more = any(MORE_PEOPLE.search(core.clean(g)) for g in genres)      # something depicted suggests more persons than listed
+    more = more or any(not s["label"] and not s["nature"] and (s["human"] or {"human", "person"} & types.get(s["d"], set()))
+                       for s in stmts.values())          # a depicted person without an English label is one more figure
     hair = expr = pose = gesture = setting = tod = weather = light = layout = camera_angle = camera_frame = None
     for st in sts:
         lab = st["label"]
@@ -524,6 +708,8 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict) -> dict | N
             if p:
                 persons.append(p)
             continue
+        if MORE_PEOPLE.search(low):
+            more = True                                   # 'crowd', 'family', 'Second Continental Congress'
         if lab != lab.lower() or not low:                 # a capital letter: a name of a figure, place, work or event
             continue
         ty = types.get(st["d"], set())
@@ -562,12 +748,15 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict) -> dict | N
             layout = layout or LAYOUT_EXTRA.get(low)
             details.append(low)
             continue
-        if "human" in ty or "person" in ty:
+        if "human" in ty or "person" in ty or low in PERSON_LABELS:
             persons.append(_person_of(st, year_known))
             continue
         if low in CONCEPT:
             if low == "nudity":
                 details.append(low)
+            continue
+        if _not_a_thing(low):
+            details.append(low)                           # an activity or an idea: a plain detail of the hint, never the thing
             continue
         wear_c = maps.first(low, maps.CLOTHING) if (low in maps.CLOTHING or "clothing" in ty) else None
         wear_a = maps.first(low, ACCESSORY) if (low in ACCESSORY or "clothing" in ty) else None
@@ -584,18 +773,26 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict) -> dict | N
         if rank is None:
             if "geo" in ty:
                 depicted.append(_counted(low, st["qty"]))
+            elif _names_a_person(low):
+                more = True                               # an untyped figure ('postilion'): one more than the typed persons,
+                depicted.append(_counted(low, st["qty"]))  # named in the hint
             continue
         things.append({"rank": rank, "low": low, "st": st})
     if not persons:                                       # without a figure, a garment is an object of the picture
         for w in wear:
             things.append({"rank": 1, "low": w["low"], "st": w["st"]})
         wear = []
-    single = len(persons) == 1 and persons[0]["qty"] in (None, 1)
+    single = len(persons) == 1 and persons[0]["qty"] in (None, 1) and not more
     s = core.Spec()
-    # the persons: count when every one is counted, gender and age when they speak for the main figure
+    # the persons: a count only when the source states it (one depicted person and nothing that suggests more: a human
+    # individual is one, a person class counts by its stated quantity), never a sum; gender and age when they speak for the main
+    # figure
     if persons:
-        if all(p["qty"] for p in persons):
-            s.set("person", "count", str(sum(p["qty"] for p in persons)))
+        if len(persons) == 1 and not more:
+            p = persons[0]
+            n = 1 if p["st"]["human"] else p["qty"]
+            if n:
+                s.set("person", "count", str(n))
         g = Counter()
         for p in persons:
             if p["gender"]:
@@ -685,23 +882,28 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict) -> dict | N
     styles = [x for x in (_style(m) for m in (prop.get("moves") or "").split("|") if m) if x]
     if styles:
         s.set("form", "style", styles[0])
-    period = _period(year, precision)
+    period = _period(year, precision, _european(prop.get("origin")))
     if period:
         s.set("form", "period", period)
     genre = _genre(genres, domain)
     # the hint: plain sentences from the labels, no names
     groups: dict = {}
-    for p in persons:                                     # identical figures are counted, not repeated: two men, a woman
+    for p in persons:                                     # one word a figure, never summed: 'men', 'a woman', 'three soldiers'
         w = p["word"] if not p["st"]["human"] else (p["gender"] or "figure")
-        groups.setdefault(w, []).append(1 if p["st"]["human"] else p["qty"])
-    figures = []
-    for w, qs in groups.items():
-        if all(qs):
-            figures.append(_counted(w, sum(qs)))
-        elif len(qs) == 1:
-            figures.append(_article(w))
+        g = groups.setdefault(w, {"people": 0, "qty": []})
+        if p["st"]["human"]:
+            g["people"] += 1
         else:
-            figures.append(_plural(w))
+            g["qty"].append(p["qty"])
+    figures = []
+    for w, g in groups.items():
+        stated = max((q for q in g["qty"] if q), default=None)
+        if g["people"] > 1:
+            figures.append(_plural(w))                    # two named people or more: 'men'
+        elif g["people"] == 1:                            # one named person; a class of the same word ('Mary' and 'woman') may be
+            figures.append(_counted(w, stated) if stated and stated > 1 else _article(w))   # the same figure: 'a woman'
+        else:
+            figures.append(_counted(w, g["qty"][0]) if len(g["qty"]) == 1 else _plural(w))
     objs = []
     for w in wear:
         c = core.clean(w["st"]["colour"] or "")
@@ -725,20 +927,25 @@ def build(qid: str, kind: str, stmts: dict, prop: dict, types: dict) -> dict | N
     if styles:
         parts.append(f"Its style is {styles[0]}.")
     hint = core.make_hint([core.drop_named(p, allow=core.DATE_MARKS) for p in parts])      # 'It is dated 340 BCE.' holds no name
-    return core.make_seed(DATASET, qid, domain, genre, textspec.finish(DATASET, qid, s), hint, LICENSE,
-                          f"https://www.wikidata.org/wiki/{qid}", min_records=2)
+    return core.make_seed(DATASET, qid, domain, genre, textspec.finish(DATASET, qid, s, group), hint, LICENSE,
+                          f"https://www.wikidata.org/wiki/{qid}", min_records=2, group=group)
 
 
 def seeds(raw_dir: str, limit: int | None = None) -> Iterator[dict]:
+    """The selected works in their stable order; a work that a museum source also holds is routed with that museum's seed id
+    (museum_group), from the ids Wikidata gives (origin_NNNN.json) or the Wikidata ids the museums' own raw files give."""
     raw = os.path.join(raw_dir, DATASET)
     if not os.path.exists(os.path.join(raw, "selection.json")):
         raise FileNotFoundError(f"{raw}: run fetch() first")
     sel, stmts, props, types = _load(raw)
+    links = museum_links(raw_dir)
     n = 0
     for w in sel:
         if limit is not None and n >= limit:
             return
-        seed = build(w["id"], w["kind"], stmts.get(w["id"], {}), props.get(w["id"], {}), types)
+        prop = props.get(w["id"], {})
+        group = museum_group(prop.get("origin"), links, w["id"])
+        seed = build(w["id"], w["kind"], stmts.get(w["id"], {}), prop, types, group)
         if seed:
             n += 1
             yield seed

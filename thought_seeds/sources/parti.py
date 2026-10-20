@@ -2,10 +2,14 @@
 
 PartiPrompts.tsv holds about 1,600 English prompts, each with a category (Animals, Artifacts, People, ...) and a challenge (Basic,
 Quantity, Perspective, ...). A prompt becomes a seed: the category (and a one-word challenge) gives the genre, the prompt's words give
-the records through the shared prompt parser (thought_seeds.textspec), and the prompt itself (names removed) is the hint."""
+the records through the shared prompt parser (thought_seeds.textspec), and the prompt itself (names removed) is the hint.
+
+The seed id is a hash of the prompt's own text (seed_id), not its row in the file: the file is read from the repository's main
+branch, and a later edit there (a row added, removed or moved) leaves the id of every unchanged prompt as it was."""
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import os
 import re
@@ -28,8 +32,9 @@ CITATION = """@article{yu2022scaling,
   year    = {2022},
   note    = {arXiv:2206.10789}
 }"""
-TAKEN = ("records + hint: the prompt text (its words through the closed-list maps; the prompt itself, names removed, as the hint), "
-         "the category and a one-word challenge as the genre")
+TAKEN = ("records + hint: the prompt text (its words through the closed-list maps; the prompt itself as the hint, without every "
+         "sentence that holds a person's, a character's or a brand's name and without resolution words), the category and a "
+         "one-word challenge as the genre")
 TSV_URL = "https://raw.githubusercontent.com/google-research/parti/main/PartiPrompts.tsv"
 USER_AGENT = "thought-seeds/0.1 (seed importer for the public dataset AbstractPhil/thought-symbolic-image-captions)"
 
@@ -37,14 +42,26 @@ CATEGORY = {"Abstract": "abstract", "Animals": "animals", "Artifacts": "objects"
             "Illustrations": "illustration", "Indoor Scenes": "interior", "Outdoor Scenes": "outdoor scene", "People": "people",
             "Produce & Plants": "plants", "Vehicles": "vehicles", "World Knowledge": "world knowledge"}
 SHORT_CHALLENGE = {"Imagination": "imagination", "Perspective": "perspective", "Quantity": "quantity"}
-LOWER_NAMES = re.compile(r"\b(mona lisa|van gogh|homer|napoleon|anubis|hanuman|rembrandt|hokusai|dali|monet|da vinci|picasso|"
-                         r"beatles?|lincoln|starry night|minecraft|spiderman|superman|rube goldberg)\b")
+# the names this source writes in lower case, or at the head of a sentence where a capital says nothing: people, characters, works,
+# brands and products
+LOWER_NAMES = re.compile(r"\b(mona lisa|van gogh|vincent|homer|napoleon|anubis|hanuman|rembrandt|hokusai|dali|salvador|monet|"
+                         r"da vinci|picasso|beatles?|lincoln|abraham|starry night|minecraft|spiderman|superman|rube goldberg|gandalf|"
+                         r"virgin mary|(?<!bloody )mary|fibonacci|porsche|gundam|lego|vw|volkswagen|ford|corvette|ferrari|testarossa|"
+                         r"harley-davidson|harley|nike|spam|band-aid|google|iphone|openai|red sox|pikachu|mario|yoda|batman|"
+                         r"mickey)\b")
+RESOLUTION = re.compile(r"\b(?:high|low|hi|ultra)[- ]res(?:olution)?\s+|\b\d+k\s+", re.I)       # 'a high resolution photo of'
+
+
+def seed_id(prompt: str) -> str:
+    """The first 16 hex digits of the sha1 of the prompt (spaces and case folded): the same prompt keeps its id whatever its row."""
+    return hashlib.sha1(re.sub(r"\s+", " ", prompt.strip().lower()).encode("utf-8")).hexdigest()[:16]
 
 
 def strip_names(text: str) -> str:
-    """The prompt without its name phrases ('in the style of <Name>', 'by <Name>') and without every sentence that still holds a
-    name (capitalized, or one of the lower-case names this source writes)."""
-    t = strip_phrases(text)
+    """The prompt without its name phrases ('in the style of <Name>', 'by <Name>'), its resolution words, and every sentence that
+    still holds a name: capitalized past its first word (core.drop_named), or one of the names LOWER_NAMES lists, wherever it
+    stands (a name opening a sentence, 'Gandalf saying you shall not pass', carries a capital that says nothing)."""
+    t = RESOLUTION.sub("", strip_phrases(text))
     sentences = re.split(r"(?<=[.!?])\s+", t)
     keep = [x for x in sentences if not LOWER_NAMES.search(x.lower())]
     return core.drop_named(" ".join(keep), allow=ALLOW)
@@ -69,10 +86,12 @@ def rows(raw_dir: str) -> list:
         return list(csv.DictReader(io.StringIO(fh.read()), delimiter="\t", quoting=csv.QUOTE_NONE))
 
 
-def build(i: int, row: dict) -> dict | None:
+def build(row: dict) -> dict | None:
+    """One prompt's seed, or None (no prompt, an explicit word, or no record)."""
     prompt = (row.get("Prompt") or "").strip()
     if not prompt or is_explicit(prompt):
         return None
+    sid = seed_id(prompt)
     clean_text = LOWER_NAMES.sub(" ", strip_phrases(prompt).lower())
     s, info = spec_from_text(clean_text)
     if not s.n():
@@ -81,15 +100,17 @@ def build(i: int, row: dict) -> dict | None:
     ch = SHORT_CHALLENGE.get((row.get("Challenge") or "").strip())
     genre = f"{cat} {ch}" if ch and " " not in cat else cat
     hint = core.make_hint([strip_names(prompt)])
-    return core.make_seed(DATASET, str(i), domain_of(clean_text), genre, finish(DATASET, str(i), s), hint, LICENSE, URL)
+    return core.make_seed(DATASET, sid, domain_of(clean_text), genre, finish(DATASET, sid, s), hint, LICENSE, URL)
 
 
 def seeds(raw_dir: str, limit: int | None = None) -> Iterator[dict]:
-    n = 0
-    for i, row in enumerate(rows(raw_dir), 1):          # the id is the prompt's line in the file (header = line 0)
+    """The prompts in file order, each once (a repeated prompt has the same id); the seed id is seed_id(prompt)."""
+    seen, n = set(), 0
+    for row in rows(raw_dir):
         if limit is not None and n >= limit:
             return
-        seed = build(i, row)
-        if seed:
+        seed = build(row)
+        if seed and seed["seed_id"] not in seen:
+            seen.add(seed["seed_id"])
             n += 1
             yield seed

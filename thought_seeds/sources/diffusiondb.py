@@ -9,8 +9,12 @@ A prompt becomes a seed when it survives, in order: the NSFW filter (any of its 
 or an explicit word), the name strip (every 'by <name>', 'in the style of <name>', 'art by', platform and resolution words; every
 comma segment that holds a name-like word, learned from the corpus itself: the words that follow 'by', and the words writers
 capitalize in the middle of a prompt far more often than common words; then core.drop_named), and a length floor (four words left).
-The surviving text is the hint; its words give the records through the shared prompt parser (thought_seeds.textspec). Prompts are
-deduplicated twice: as written, and as cleaned."""
+The surviving text's words give the records through the shared prompt parser (thought_seeds.textspec), and a record whose value is
+open (the thing's name, a relation's ends) is kept only when it is a word of a known object vocabulary (the parser's object words
+and the COCO category names), so no name, brand or character can be a record's value.
+
+A DiffusionDB seed carries NO hint: people type names in lower case as often as not, so no name filter over this corpus can be
+trusted with its text. Prompts are deduplicated twice: as written, and as cleaned (the text the records are read from)."""
 from __future__ import annotations
 
 import hashlib
@@ -35,8 +39,10 @@ CITATION = """@article{wangDiffusionDBLargescalePrompt2022,
   journal = {arXiv:2210.14896 [cs]},
   url     = {https://arxiv.org/abs/2210.14896}
 }"""
-TAKEN = ("records + hint: the prompt text of the 2M subset (artist, person and platform names removed; its words through the "
-         "closed-list maps; the cleaned prompt as the hint); prompt_nsfw and image_nsfw used only to drop prompts")
+TAKEN = ("records only, no hint: the prompt text of the 2M subset read through the closed-list maps and a fixed object vocabulary "
+         "(thing names and relation ends only from the parser's object words and the COCO category names; segments that hold a "
+         "name-like word learned from the corpus dropped before the read); the prompt text itself is not shipped; prompt_nsfw and "
+         "image_nsfw used only to drop prompts")
 REPO = "poloclub/diffusiondb"
 FILE = "metadata.parquet"
 COLUMNS = ["prompt", "prompt_nsfw", "image_nsfw"]
@@ -81,13 +87,18 @@ def fetch(raw_dir: str) -> dict:
 
 # ------------------------------------------------------------------ cleaning: names, platforms, boilerplate
 SEGMENT = re.compile(r"[,;|\n]+|\s+-\s+|[()\[\]{}]|::|\s\|\s")
+# this corpus writes a hyphen with a space on each side ('spider - man', 'photo - realistic', 'award - winning', 'trs - 8 0'): the
+# halves are joined back before the prompt is cut into segments, so a hyphenated word stays one word
+SPACED_HYPHEN = re.compile(r"(?<=[A-Za-z0-9']) - (?=[A-Za-z0-9])")
+SEGMENTER = 2           # the version of segments(): the learned name list is rebuilt when it changes
 FLAGS = re.compile(r"--\w+(?:\s+[\w:.]+)?|:\s*\d+(?:\.\d+)?\b|\b\d+(?:\.\d+)?\s*:\s*\d+\b")
 TOKEN = re.compile(r"[A-Za-z][A-Za-z'\-]*")
 DETERMINERS = {"the", "a", "an", "his", "her", "their", "its", "my", "your", "our", "this", "that", "these", "those", "some", "night",
                "day", "moonlight", "candlelight", "sunlight", "firelight", "lantern", "hand", "itself", "himself", "herself"}
 BY_PHRASE = re.compile(r"\b(?:by|art by|painted by|drawn by|illustrated by|photographed by|photo by|artwork by|style by|inspired by|"
                        r"in the style of|in style of|style of|in the manner of|influenced by|after the style of)\s+(.*)$")
-PLATFORM = re.compile(r"\b(trending|artstation|art station|cgsociety|cg society|deviantart|deviant art|behance|pixiv|unsplash|500px|"
+PLATFORM = re.compile(r"\b(trending|tranding|artstation|art station|cgsociety|cg society|deviantart|deviant art|behance|pixiv|pxiv|"
+                      r"pixv|fanbox|weasyl|furaffinity|unsplash|500px|high resolution|resolution|rtx|"
                       r"flickr|instagram|reddit|pinterest|zbrush central|polycount|sketchfab|featured on|award[- ]winning|"
                       r"masterpiece|hq|uhd|hdr|\d+k|\d{3,4}p|8 k|4 k|highly detailed|ultra detailed|very detailed|intricate details?|"
                       r"insanely detailed|hyper detailed|hyperdetailed|ultra realistic|ultra-realistic|trending now|nft|opensea)\b")
@@ -95,6 +106,8 @@ STOPWORDS = set("""a an the of in on at to and or with without for from by as is
 his her their our your my we you they he she i me him them who whom which what when where while into onto over under above below behind
 between through across around near next very more most much many some any all each every both few several no not only also just than
 then so such too up down out off again further once here there about against during before after same other another own""".split())
+ACRONYMS = {"ISO", "DSLR", "SLR", "HD", "HDR", "RAW", "UHD", "PBR", "CGI", "VR", "AI", "UV", "LED", "RGB", "DOF", "TV", "UFO", "LCD",
+            "GPU", "CPU", "USB", "BW", "IMAX", "VHS", "DVD", "CD", "NFT", "RPG", "FPS", "UI", "UX", "SFX", "VFX"}
 NATIONAL = set("""japanese chinese korean french english british american african indian italian greek roman egyptian russian mexican
 spanish german nordic norse viking celtic persian arabic arabian aztec mayan victorian edwardian elizabethan medieval gothic baroque
 renaissance rococo byzantine soviet scandinavian dutch flemish polish irish scottish tibetan thai vietnamese brazilian peruvian
@@ -128,7 +141,8 @@ def _parts(words: list) -> list:
 
 
 def segments(prompt: str) -> list:
-    return [s.strip() for s in SEGMENT.split(FLAGS.sub(" ", core.ascii_text(prompt))) if s.strip()]
+    """The prompt's comma (and bracket, bar, dash) segments, its spaced hyphens joined back first."""
+    return [s.strip() for s in SEGMENT.split(FLAGS.sub(" ", SPACED_HYPHEN.sub("-", core.ascii_text(prompt)))) if s.strip()]
 
 
 def strip_segment(seg: str, names: set = frozenset()) -> str:
@@ -170,9 +184,9 @@ def clean_prompt(prompt: str, names: set, totals: Counter, safe: set, pairs: set
         if any(f"{a} {b}" in pairs for a, b in zip(parts, parts[1:])):
             continue
         cased = [t for t in TOKEN.findall(seg) if t.lower() in set(words)]
-        allow = {t for t in cased if t[:1].isupper() and t.lower() not in names}
+        allow = {t for t in cased if t[:1].isupper() and not t.isupper() and t.lower() not in names} | ACRONYMS
         if not core.drop_named(" ".join(cased), allow=allow):
-            continue
+            continue                                  # an all-capitals word other than a known acronym: a name ('KEROUAC')
         out.append(low)
     text = ", ".join(dict.fromkeys(out))
     return re.sub(r"\s+", " ", textspec.norm_digits(text)).strip(" ,")
@@ -201,44 +215,91 @@ def genre_of(t: str, info: dict) -> str:
     return "scene"
 
 
+def name_settings(safe: set) -> dict:
+    """The settings the learned name list depends on: the ratios, the floor, the segmenter's version and the safe words (a hash).
+    A kept name_words.json whose settings differ is learned again."""
+    return {"cap_ratio": CAP_RATIO, "by_ratio": BY_RATIO, "list_ratio": LIST_RATIO, "pair_ratio": PAIR_RATIO, "name_min": NAME_MIN,
+            "segmenter": SEGMENTER, "safe_words": hashlib.sha1(" ".join(sorted(safe)).encode("utf-8")).hexdigest()[:16]}
+
+
 def _names(raw: str, prompts) -> tuple:
-    """(name-like words, name pairs, word totals): learned from the corpus once, kept as name_words.json beside the prompts."""
+    """(name-like words, name pairs, word totals): learned from the corpus, kept as name_words.json beside the prompts, and learned
+    again when the kept file's settings are not the module's (name_settings)."""
     path = os.path.join(raw, "name_words.json")
+    safe = _safe_words()
+    settings = name_settings(safe)
     if os.path.exists(path):
         with open(path, encoding="utf-8") as fh:
             j = json.load(fh)
-        return set(j["names"]), set(j["pairs"]), Counter(j["totals"])
-    safe = _safe_words()
+        if all(j.get(k) == v for k, v in settings.items()):
+            return set(j["names"]), set(j["pairs"]), Counter(j["totals"])
+        print(f"[diffusiondb] {path}: learned with other settings, learning the name list again", flush=True)
+    t0 = time.time()
     st = word_stats(prompts, safe)
     first = name_words(st, safe)
     names = name_words(st, safe, listed_counts(prompts, first, safe))
     pairs = name_pairs(prompts, safe)
     totals = {w: n for w, n in st["total"].items() if n >= NAME_MIN}
     with open(path + ".part", "w", encoding="utf-8") as fh:
-        json.dump({"cap_ratio": CAP_RATIO, "by_ratio": BY_RATIO, "list_ratio": LIST_RATIO, "pair_ratio": PAIR_RATIO,
-                   "name_min": NAME_MIN, "names": sorted(names), "pairs": sorted(pairs), "totals": totals}, fh)
+        json.dump({**settings, "names": sorted(names), "pairs": sorted(pairs), "totals": totals}, fh)
     os.replace(path + ".part", path)
+    print(f"[diffusiondb] name list learned: {len(names)} words, {len(pairs)} pairs, {time.time() - t0:.0f} s", flush=True)
     return names, pairs, Counter(totals)
 
 
-def build(sid: str, prompt: str, names: set, totals: Counter, safe: set, pairs: set = frozenset()) -> dict | None:
-    """One prompt's seed, or None (an explicit word, fewer than four words left after the name strip, or no record)."""
+def known_things() -> set:
+    """The words an open record's value may take in this source: the parser's object words and the COCO category names."""
+    from . import coco
+    return {w for w, _, _ in textspec.NOUNS.values()} | {name for name, _ in coco.CATS.values()}
+
+
+def known_ends() -> set:
+    """The words a relation's end may take: the known things, the gender words and the parser's person words."""
+    persons = set(textspec.PERSON_WORDS) | {w[:-1] for w in textspec.PERSON_WORDS if w.endswith("s") and not w.endswith("ss")}
+    return known_things() | set(core.closed_list("person gender")) | persons
+
+
+def vocab_only(spec: dict, things: set, ends: set) -> dict:
+    """The spec without an open record whose value is outside the known vocabularies: the thing goes whole when its name is
+    unknown, a relation goes when an end is unknown."""
+    out = {k: (dict(v) if isinstance(v, dict) else [dict(r) for r in v]) for k, v in spec.items()}
+    if "thing" in out and out["thing"].get("name") not in things:
+        del out["thing"]
+    if "relation" in out:
+        out["relation"] = [r for r in out["relation"] if r["a"] in ends and r["b"] in ends]
+        if not out["relation"]:
+            del out["relation"]
+    return out
+
+
+_KNOWN: dict = {}
+
+
+def build(sid: str, prompt: str, names: set, totals: Counter, safe: set, pairs: set = frozenset(),
+          text: str | None = None) -> dict | None:
+    """One prompt's seed, records only (no hint), or None (an explicit word, fewer than four words left after the name strip, or
+    no record). `text`: the prompt as clean_prompt cleans it, when the caller already has it."""
     if textspec.is_explicit(prompt):
         return None
-    text = clean_prompt(prompt, names, totals, safe, pairs)
+    if text is None:
+        text = clean_prompt(prompt, names, totals, safe, pairs)
     if len(text.split()) < MIN_WORDS or textspec.is_explicit(text):
         return None
     s, info = textspec.spec_from_text(text)
     if not s.n():
         return None
-    domain = textspec.domain_of(text)
-    hint = core.make_hint([core.drop_named(text)])
-    return core.make_seed(DATASET, sid, domain, genre_of(text, info), textspec.finish(DATASET, sid, s), hint, LICENSE, URL)
+    if not _KNOWN:
+        _KNOWN.update(things=known_things(), ends=known_ends())
+    spec = vocab_only(textspec.finish(DATASET, sid, s), _KNOWN["things"], _KNOWN["ends"])
+    if not spec:
+        return None
+    return core.make_seed(DATASET, sid, textspec.domain_of(text), genre_of(text, info), spec, "", LICENSE, URL)
 
 
 def seeds(raw_dir: str, limit: int | None = None) -> Iterator[dict]:
     """The distinct prompts in a stable shuffled order (by the hash of the folded prompt), the NSFW-flagged ones dropped, the cleaned
-    texts deduplicated; the seed id is the first 16 hex digits of that hash."""
+    texts deduplicated (two prompts that read the same once cleaned give one seed); the seed id is the first 16 hex digits of that
+    hash."""
     raw = os.path.join(raw_dir, DATASET)
     prompts = unique_prompts(raw_dir)
     names, pairs, totals = _names(raw, prompts)
@@ -252,11 +313,12 @@ def seeds(raw_dir: str, limit: int | None = None) -> Iterator[dict]:
             return
         if pn >= PROMPT_NSFW_MAX or im >= IMAGE_NSFW_MAX:
             continue
-        seed = build(sid, p, names, totals, safe, pairs)
-        if not seed:
-            continue
-        key = hashlib.sha1(seed.get("hint", "").encode("utf-8")).digest()[:10]
+        text = clean_prompt(p, names, totals, safe, pairs)
+        key = hashlib.sha1(text.encode("utf-8")).digest()[:10]
         if key in seen:
+            continue                                  # the same text once cleaned: the same records
+        seed = build(sid, p, names, totals, safe, pairs, text=text)
+        if not seed:
             continue
         seen.add(key)
         n += 1
