@@ -98,6 +98,33 @@ def test_a_sealed_thing_name_takes_its_whole_system(tmp_path):
     assert out[held]["spec"]["thing"] == {"name": "bird", "count": "1", "colour": "black", "position": "right"}
 
 
+def test_a_position_only_where_every_box_of_the_thing_is():
+    def dogs(*xs):
+        objs = {"1": _o("man", 280, 100, 80, 300, ["standing"])}
+        objs.update({str(i + 2): _o("dog", x, 380, 60, 50, ["brown"]) for i, x in enumerate(xs)})
+        return gqa.spec_of({"width": 640, "height": 480, "objects": objs})[0].spec()["thing"]
+    spread = dogs(20, 560)                                    # one dog at the left edge, one at the right
+    assert spread["name"] == "dog" and spread["count"] == "2" and "position" not in spread
+    assert dogs(470, 560)["position"] == "right"
+
+
+def test_a_picture_coco_holds_takes_cocos_draw(tmp_path):
+    bird = {"width": 640, "height": 480, "objects": {"1": _o("man", 100, 80, 160, 380, ["standing"]),
+                                                     "2": _o("bird", 400, 100, 120, 100, ["black"])}}
+    gid = next(str(i) for i in range(200) if not core.held_pick(f"gqa:{i}"))
+    cid = next(i for i in range(1, 2000) if core.held_pick(f"coco-image:{i}"))
+    d = tmp_path / "gqa"
+    d.mkdir()
+    with zipfile.ZipFile(d / gqa.ZIP, "w") as z:
+        z.writestr("train_sceneGraphs.json", json.dumps({gid: bird}))
+        z.writestr("val_sceneGraphs.json", json.dumps({}))
+    assert list(gqa.seeds(str(tmp_path)))[0]["held"] is False           # without the join: its own draw
+    (d / gqa.VG_IMAGES).write_text(json.dumps([{"image_id": int(gid), "coco_id": cid}]), encoding="utf-8")
+    assert gqa.coco_ids(str(tmp_path)) == {gid: cid}
+    assert list(gqa.seeds(str(tmp_path)))[0]["held"] is True            # COCO's draw for the same picture
+    assert list(gqa.seeds(str(tmp_path), limit=0)) == []
+
+
 def test_a_worn_watch_or_wine_glasses():
     g = {"width": 400, "height": 400, "objects": {"1": _o("man", 50, 20, 200, 370, [], [("wearing", "2"), ("holding", "3")]),
                                                   "2": _o("watch", 200, 200, 20, 20, ["silver"]),

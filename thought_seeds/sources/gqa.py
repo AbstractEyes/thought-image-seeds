@@ -48,6 +48,8 @@ CITATION = r"""@inproceedings{hudson2019gqa,
 TAKEN = ("records only: object names, attributes, boxes and relations of the train + val scene graphs and the graph weather field "
          "(person, look, wear, body, scene, thing, relations; form medium photograph); no hint (GQA has no free text; the Visual "
          "Genome region descriptions were not joined)")
+MODIFIED = ("modified by this dataset: annotations extracted from the scene graphs and mapped to the dataset's closed lists; no text "
+            "taken")
 
 ZIP = "sceneGraphs.zip"
 ZIP_URL = "https://downloads.cs.stanford.edu/nlp/data/gqa/sceneGraphs.zip"
@@ -814,7 +816,11 @@ def spec_of(graph: dict) -> tuple:
             states -= ANIMATE_STATES                   # 'a cup sitting on a table' is the annotator's verb, not a state
         if states:
             s.set("thing", "state", min(states, key=lambda v: _RANK.get(v, 999)))
-        s.set("thing", "position", maps.position_of(thing.cx / W))
+        # the position of every box of its name: one side only when all of them are there ('several signs, on the right' is not
+        # said of signs spread across the frame)
+        sides = {maps.position_of(o.cx / W) for o in kept + [thing]}
+        if len(sides) == 1:
+            s.set("thing", "position", sides.pop())
 
     s.set("form", "medium", "photograph")
 
@@ -879,10 +885,29 @@ def spec_of(graph: dict) -> tuple:
 
 
 # ------------------------------------------------------------------ seeds
+VG_IMAGES = "image_data.json"       # Visual Genome's image metadata (image id -> coco_id), optional beside the zip
+
+
+def coco_ids(raw_dir: str) -> dict:
+    """{GQA image id: COCO image id} from Visual Genome's image_data.json when it is in raw_dir/gqa/ (GQA's images are Visual
+    Genome's, about 51k of them COCO's too); {} without the file."""
+    path = os.path.join(raw_dir, DATASET, VG_IMAGES)
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as fh:
+        rows = json.load(fh)
+    return {str(r.get("image_id", r.get("id"))): r["coco_id"] for r in rows if isinstance(r, dict) and r.get("coco_id")}
+
+
 def seeds(raw_dir: str, limit: int | None = None, members=MEMBERS):
-    """Seeds of the train graphs, then the val graphs (85,638 images in all), in file order."""
+    """Seeds of the train graphs, then the val graphs (85,638 images in all), in file order; `limit`: at most that many (None:
+    all, 0: none). A picture COCO also holds takes COCO's routing group (coco_ids), so its COCO captions, its Localized Narrative
+    and its graph make one held / training choice."""
     path = os.path.join(raw_dir, DATASET, ZIP)
     STATS.clear()
+    if limit is not None and limit <= 0:
+        return
+    coco = coco_ids(raw_dir)
     n = 0
     for iid, graph in iter_graphs(path, members):
         STATS["images"] += 1
@@ -894,7 +919,8 @@ def seeds(raw_dir: str, limit: int | None = None, members=MEMBERS):
             STATS[f"dropped {k}"] += v
         sid = str(iid)
         # (a training seed loses a sealed thing name with its whole thing system: core.strip_sealed)
-        seed = core.make_seed(DATASET, sid, DOMAIN, genre, spec, "", LICENSE, URL, min_records=MIN_RECORDS)
+        group = f"coco-image:{coco[sid]}" if sid in coco else None
+        seed = core.make_seed(DATASET, sid, DOMAIN, genre, spec, "", LICENSE, URL, min_records=MIN_RECORDS, group=group)
         if seed is None:
             STATS["skip: rejected by make_seed"] += 1      # (the reason is counted in core.REJECTED)
             continue
