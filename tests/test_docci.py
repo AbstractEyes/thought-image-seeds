@@ -69,6 +69,64 @@ def test_colour_compounds():
     assert docci.parse_np(docci._tokens("yellow-crowned night heron"))["colours"] == []          # a part's colour
 
 
+def _spec(description):
+    s, genre, hint = docci.spec_of(description)
+    return s.spec(), hint
+
+
+def test_hints_keep_no_name_opener_or_saint_fragment():
+    _s, hint = _spec("A close-up view of a statue of Einstein sitting on a bench. Einstein's left arm rests on the bench. The bench "
+                     "is gray.")
+    assert hint == "The bench is gray."
+    _s, hint = _spec("A front view of a stone statue of a monk. A plaque below it reads St. Francis. The statue stands in a garden.")
+    assert hint == "A front view of a stone statue of a monk. The statue stands in a garden."
+    _s, hint = _spec("An outdoor view of a gray stone wall. The wall is in Jackson Square in St. Louis. Ivy grows on the wall.")
+    assert "Louis" not in hint and "St." not in hint
+    _s, hint = _spec("The image shows a red barn in a field. In this image, the barn has a white door. The pixels of the sky are "
+                     "blue.")
+    assert hint == "A red barn in a field. The barn has a white door."               # no image talk, no pixels
+
+
+def test_a_position_comes_only_from_a_sentence_that_places_the_thing():
+    assert "position" not in _spec("A close-up view of a red apple on a wooden table. A knife is on the left side of the image.")[0][
+        "thing"]                                                                       # the knife is placed, not the apple
+    assert "position" not in _spec("A top-down view of a black dog lying on a rug, its head pointing towards the lower left "
+                                   "corner of the image.")[0]["thing"]                # a direction places nothing
+    assert _spec("A close-up view of a red star painted on a wall. The red star is on the left side of the image.")[0]["thing"][
+        "position"] == "left"
+
+
+def test_the_subject_is_a_noun():
+    for d, name in (("An outdoor view of an older red brick building with white windows.", "building"),
+                    ("A close-up view of a sign that says stop on a pole.", "sign"),
+                    ("A close-up view of a bagel cut in half on a plate.", "bagel"),
+                    ("A view at dusk of a tall courthouse with a clock tower.", "courthouse"),
+                    ("An indoor top-down view captures a white cat with black patches on a wooden floor.", "cat"),
+                    ("An outdoor high angled shot of a congested asphalt intersection besides an overpass.", "intersection"),
+                    ("A close up view of a hand blown glass mug that is upside down.", "glass mug")):
+        assert _spec(d)[0].get("thing", {}).get("name") == name, d
+    assert "thing" not in _spec("A side view of a black mini cooper parked on a street.")[0]          # a brand is no noun
+    assert _spec("A view at dusk of a tall courthouse with a clock tower.")[0]["scene"] == {"time": "dusk"}
+
+
+def test_a_likeness_is_no_person():
+    for d in ("A front view of two large nutcracker soldiers standing beside a door.",
+              "A front view of a cardboard cutout of a person standing in a store.",
+              "A close-up view of a white stone man sitting on a pedestal."):
+        assert "person" not in _spec(d)[0], d
+
+
+def test_weather_only_of_the_air_and_colours_only_of_the_whole_thing():
+    for d in ("A close-up view of a car with foggy headlights on a street.",
+              "A view of a small christmas tree covered in fake snow on a table.",
+              "A close-up view of a fan with mist coming from the fan. The fan is white."):
+        assert "weather" not in _spec(d)[0].get("scene", {}), d
+    assert _spec("A wide view of a lake on a foggy morning. The sky is foggy.")[0]["scene"]["weather"] == "fog"
+    for d in ("A close-up view of a wine cork on a table.", "A close-up view of an ice cream cone on a napkin.",
+              "An outdoor view of a sand volleyball court on a beach."):
+        assert "colour" not in _spec(d)[0]["thing"], d
+
+
 def test_seeds_from_a_file(tmp_path):
     d = tmp_path / "docci"
     d.mkdir()
@@ -81,7 +139,8 @@ def test_seeds_from_a_file(tmp_path):
         assert seed["source"] == {"dataset": "docci", "id": seed["seed_id"].split(":", 1)[1], "license": "CC BY 4.0",
                                   "url": docci.URL}
         assert core.check_spec(seed["spec"]) == [] and not (core.sealed(seed["spec"]) and not seed["held"])
-    assert len(list(docci.seeds(str(tmp_path), limit=2))) == 2
+    assert len(list(docci.seeds(str(tmp_path), limit=2))) == 2 and list(docci.seeds(str(tmp_path), limit=0)) == []
+    assert len(list(docci.seeds(str(tmp_path), limit=None))) == 3
 
 
 def test_module_contract():

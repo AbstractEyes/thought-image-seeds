@@ -7,9 +7,10 @@ its name with a material or toy word kept, its count from the number word, its o
 the subject is a person); sentences whose subject is that thing give its position ('on the left side of the image'); sentences of
 the anchored forms 'A <x> is behind the <y>' and 'Behind the <y> is a <x>' give up to six relations of the trie's list; sky, time
 and light words give the scene's weather and time and the shot's light direction and focus. A value is taken only where the phrase
-is unambiguous (two colours, two weathers or two settings: none). The description is the hint: every sentence with a capitalized
-name (core.drop_named), quoted text or upper-case text is dropped, the rest cut at 600 bytes. Only the description file is read: no
-image is downloaded, used or redistributed."""
+is unambiguous (two colours, two weathers or two settings: none). The description is the hint: every sentence that may hold a name
+(core.drop_named_strict with the plain words of all the descriptions: 'Einstein's left arm ...' opens with one), quoted text,
+upper-case text or talk of the image as an image is dropped, the rest cut at 600 bytes. Only the description file is read: no image
+is downloaded, used or redistributed."""
 from __future__ import annotations
 
 import json
@@ -35,7 +36,9 @@ CITATION = r"""@inproceedings{OnoeDocci2024,
 TAKEN = ("records + hint: from the human description, the view phrase (shot framing, angle), the main subject (thing name, count, "
          "colour, state, position; or person count, gender, age, role, wear, pose), anchored spatial relations, sky / time / light "
          "words (scene weather, time; shot light, focus), form medium photograph; hint = the description without any sentence that "
-         "holds a capitalized name, quoted text or upper-case text, cut to 600 bytes")
+         "may hold a name, quoted text, upper-case text or talk of the image as an image, cut to 600 bytes")
+MODIFIED = ("modified by this dataset: values extracted from the descriptions and mapped to the dataset's closed lists; the hint is "
+            "an excerpt of the description (sentences removed as stated, the rest cut to fit 600 bytes)")
 
 FILE = "docci_descriptions.jsonlines"
 FILE_URL = "https://storage.googleapis.com/docci/data/docci_descriptions.jsonlines"
@@ -83,16 +86,29 @@ QUANTITY.update({"pairs": "several", "groups": "several", "rows": "several", "se
                  "piles": "several", "stacks": "several", "lines": "several", "clusters": "several", "bundles": "several",
                  "pieces": None, "slices": None, "strips": None, "chunks": None, "patches": None, "bits": None, "sheets": None,
                  "clumps": None, "dozens": "many", "hundreds": "many"})
+# words that end a noun phrase: a determiner starts a new one ('building the Tower'); 'besides' is written for 'beside'
 STOP = set("with on in at of by from near under over above below behind beside between inside against along across through into "
            "onto upon to toward towards for like without that which who whose where while is are was were has have had and or but "
            "as than so then its their his her it they this these those there here can could will would being been be also very "
            "both each all some any no not one next close nearby alongside outside around beneath underneath atop among amongst "
            "amid within beyond past via during after before until since except about off out up down away together apart "
-           "whose what when how why".split())
+           "whose what when how why the a an another besides throughout".split())
 VERBISH = set("sitting standing lying laying sits stands lies lays hanging hangs resting rests placed parked facing looking made "
               "holding wearing seen shown displayed covered filled growing flying floating perched leaning mounted attached painted "
               "carved extending running walking moving swimming sleeping eating drinking reading playing showing visible shining "
-              "casting reflecting pointing positioned located set lined surrounded".split())
+              "casting reflecting pointing positioned located set lined surrounded "
+              # verbs of the third person that end a subject ('a sign says', 'a lamp shines') and irregular participles that end a
+              # phrase after its noun ('a cone held up by a post', 'a shadow cast onto the blinds')
+              "says reads shows displays contains appears seems protrudes reflects shines glows overlooks extends stretches leans "
+              "rises flows depicts features includes carries wears "
+              "cut drawn held taken stuck lit cast torn beat bitten shaken spun sewn thrown blown hung strung swung known".split())
+IRREGULAR = set("cut drawn held taken stuck lit cast torn beat bitten shaken spun sewn thrown blown hung strung swung known".split())
+# the first word of a compound participle that tells how a thing is made ('hand blown', 'sun dried', 'spray painted')
+HOW_MADE = set("hand machine home factory sun wind air pan oven spray water".split())
+# makes and brands written in lower case ('a black mini cooper'): never the noun of a subject
+BRANDS = set("cooper volkswagen toyota honda ford chevrolet chevy nissan subaru mazda hyundai kia bmw mercedes audi porsche ferrari "
+             "lamborghini tesla dodge chrysler cadillac buick lexus acura volvo fiat vespa harley yamaha suzuki kawasaki ducati "
+             "oldsmobile nike adidas reebok starbucks coca-cola pepsi ikea nintendo playstation xbox iphone ipad macbook".split())
 ADJ = set("large small big tiny little huge giant tall short long wide narrow thin thick round square rectangular circular oval "
           "triangular flat old new young empty full open closed wet dry shiny dull dirty clean broken bright dark light pale deep "
           "real fake sized size medium colored coloured multi-colored multicolored colorful colourful striped spotted patterned "
@@ -105,9 +121,14 @@ ADJ = set("large small big tiny little huge giant tall short long wide narrow th
           "transparent translucent clear opaque bare vast dense sparse curved straight wavy curly pointed pointy visible "
           "invisible noticeable apparent partly barely chrome wicker burgundy broad common semi-transparent mock punk inlaid "
           "morning evening afternoon flush murky bumpy icy midair mid-air clad suburban frenzy rusty dusty muddy sandy "
-          "grassy rocky leafy snowy sunny cloudy foggy misty hazy shady woody hilly stony"
+          "grassy rocky leafy snowy sunny cloudy foggy misty hazy shady woody hilly stony "
+          # comparatives and superlatives ('an older red brick building'); 'lighter' is also a noun, so not here
+          "older younger newer larger smaller bigger taller shorter longer wider narrower thinner thicker darker brighter "
+          "deeper higher closer nearer farther further inner outer oldest youngest newest largest smallest biggest tallest "
+          "shortest longest widest darkest lightest brightest highest closest nearest farthest furthest"
           .split()) | set(maps.COLOUR)
-GENERIC = set("view image frame photo photograph picture shot close-up closeup scene area side top bottom front back middle center "
+GENERIC = set("view image frame photo photograph picture shot close-up closeup rearview sideview overview scene area side top bottom "
+              "front back middle center "
               "centre corner edge part portion section surface foreground background distance left right inside outside piece "
               "pieces type types kind kinds variety group pair row set bunch pile stack line number lot lots collection series "
               "assortment angle perspective level ground floor sky thing things object objects item items something camera lens "
@@ -235,6 +256,19 @@ WEATHER_WORDS = [(r"\bovercast\b|cloudy sky\b|sky is (?:very |completely |fully 
                   r"\bsnow\b(?! globe)", "snow"),
                  (r"\bstormy\b|storm clouds|thunderstorm", "storm")]
 NOT_OVERCAST = r"partly cloudy|partially cloudy|scattered clouds|few clouds|some clouds|patches of clouds"
+# fog, mist and haze are weather only in the open air ('the background is foggy', 'mist over the lake'; not 'foggy headlights',
+# 'a foggy glass', 'mist coming from the fan')
+OPEN_AIR = re.compile(r"\b(sky|skies|air|atmosphere|distance|distant|horizon|background|landscape|mountains?|hills?|valley|fields?|"
+                      r"forest|woods|trees|city|skyline|morning|day|weather|outside|outdoors|lake|river|ocean|sea|bay|harbou?r|"
+                      r"shore|coast|road|street|town|buildings|scenery|canyon|aerial|cliffs?|island|countryside|park|beach|desert|"
+                      r"meadow|hillside|sunrise|sunset|dawn|dusk|clouds?)\b")
+# a fog word that describes an object, not the air ('foggy headlights', 'a misty window'; 'a foggy morning' is weather)
+FOGGY_THING = re.compile(r"\b(?:foggy|misty|hazy)\s+(?!(?:day|days|morning|evening|night|afternoon|dawn|dusk|sky|skies|air|weather|"
+                         r"atmosphere|background|distance|horizon|mountains?|hills?|valley|fields?|forest|woods|lake|river|sea|ocean|"
+                         r"bay|landscape|city|street|road|scene|scenery|light|sunrise|sunset|conditions?)\b)[a-z-]+")
+# snow, fog and haze that are not weather: a likeness or a decoration ('painted white to look like snow', 'fake snow blankets')
+NOT_WEATHER = re.compile(r"\b(look(?:s|ing)? like|like snow|as snow|resembl\w*|fake|artificial|faux|imitation|decorati\w*|"
+                         r"ornaments?|toy|globe|cotton|machine|spray(?:ed|ing)?|smoke)\b")
 LIGHT_WORDS = [(r"\bbacklit\b|back[ -]lit", "backlit"), (r"\bsilhouetted\b|in silhouette", "silhouette"),
                (r"\bdappled\b", "dappled"), (r"candle ?light|candlelit", "candle"), (r"moonlight|moonlit", "moonlight"),
                (r"(?:sun ?light|light|the sun)(?: is)? (?:coming|shining|cast|casting|pouring|streaming)(?: in)? from the left|"
@@ -248,10 +282,6 @@ SETTING_SKIP = {"studio", "lab", "laboratory", "subway", "metro station", "ruins
                 "lighthouse", "cliffs", "cliff", "bridge", "hospital", "hospital room"}
 PICTUREISH = re.compile(r"\b(picture|painting|photo|photograph|drawing|poster|mural|print|illustration|screen|reflection|reflected|"
                         r"reflecting|graphic|cartoon|depict\w*|image of|map|television|tv|monitor|postcard|calendar)\b")
-POSITION = re.compile(r"\b(?:on|in|at|to|toward|towards)\s+the\s+(?:far\s+|bottom\s+|top\s+|lower\s+|upper\s+)?(left|right)"
-                      r"(?:\s+(?:hand\s+)?(?:side|half|portion|part|corner|edge|third))?\s+of\s+the\s+(?:image|frame|photo|picture|"
-                      r"photograph|shot)|\b(?:in|at)\s+the\s+(?:center|centre|middle)\s+of\s+the\s+(?:image|frame|photo|picture|"
-                      r"photograph|shot)")
 REL_WORDS = {"to the left of": "left of", "to the right of": "right of", "behind": "behind", "in front of": "in front of",
              "next to": "beside", "beside": "beside", "above": "above", "below": "below", "under": "under", "underneath": "under",
              "beneath": "under", "on top of": "above", "inside of": "inside", "leaning against": "leaning on"}
@@ -270,7 +300,6 @@ INVERTED = re.compile(rf"^(?:directly\s+|just\s+|immediately\s+)?({_REL})\s+({_D
                       rf"\s*,?\s+(?:is|are|sits|stands|lies|hangs|rests|there is|there are)\s+({_DET})\s+(.*)$")
 INDEFINITE = {"a", "an", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "several", "many", "some"}
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z'-]*|\d+|[,;:()\"]")
-_SENT = re.compile(r"(?<=[.!?])\s+")
 
 
 # ------------------------------------------------------------------ noun phrases
@@ -292,28 +321,41 @@ def parse_np(tokens: list) -> dict | None:
             words.append(t)                            # 'children sized tutus', 'heart shaped box': an adjective, the noun follows
             seen_noun = False
             continue
+        if words and words[-1].lower() in HOW_MADE and (lw in IRREGULAR or lw.endswith("ed")):
+            words.append(t)                            # 'hand blown glass mug', 'sun dried tomatoes': how it is made, the noun follows
+            seen_noun = False
+            continue
         noun_like = lw in ING_NOUNS or lw in ED_NOUNS
         nxt = tokens[i + 1].lower() if i + 1 < len(tokens) else ""
         if lw.endswith("ing") and nxt in AFTER_ING:
             noun_like = True                           # 'dish drying rack': the phrase goes on to its noun
-        if seen_noun and not noun_like and (lw in VERBISH or lw.endswith("ing") or (lw.endswith("ed") and lw not in MADE)):
+        # a colour word is an adjective, 'red' too, though it ends in -ed
+        if seen_noun and not noun_like and (lw in VERBISH or lw.endswith("ing") or
+                                            (lw.endswith("ed") and lw not in MADE and lw not in maps.COLOUR)):
             break
         words.append(t)
-        if noun_like or (lw not in ADJ and lw not in MADE and not lw.endswith(("ed", "ing", "ly"))):
+        shade = nxt in maps.COLOUR and lw not in maps.COLOUR       # 'chalk white', 'brick red', 'sky blue': a colour's modifier
+        if noun_like or (not shade and lw not in ADJ and lw not in MADE and not lw.endswith(("ed", "ing", "ly"))):
             seen_noun = True
         if len(words) >= 7:
             break
     while words and (words[-1].lower() in ADJ or words[-1].lower() == "and"):
+        if words[-1].lower() in ("light", "lights") and len(words) > 1 and words[-2].lower() in COMPOUND:
+            break                                      # 'a stop light', 'a street light': the light is the noun
+        if words[-1].lower() in ("square", "squares") and len(words) > 1 and words[-2].lower() not in ADJ:
+            break                                      # 'a white chalk square': after a noun, the square is the noun
         words.pop()
     if not words:
         return None
     head = words[-1]
     lh = head.lower()
-    if head != lh or not re.fullmatch(r"[a-z][a-z-]*[a-z]", lh) or lh in GENERIC or lh in BODY or lh in STOP or len(lh) < 3:
+    compound_light = lh in ("light", "lights") and len(words) > 1 and words[-2].lower() in COMPOUND
+    if head != lh or not re.fullmatch(r"[a-z][a-z-]*[a-z]", lh) or (lh in GENERIC and not compound_light) or lh in BODY or \
+            lh in STOP or len(lh) < 3:
         return None
-    if lh in MADE or lh in VERB_BASE or (lh.endswith(("ly", "ed")) and lh not in ED_NOUNS and lh not in ("fly", "butterfly",
-                                                                                                     "dragonfly", "lily", "belly")):
-        return None                                    # an adverb, a participle, a material or a verb is not a head noun
+    if lh in MADE or lh in VERB_BASE or lh in IRREGULAR or lh in BRANDS or \
+            (lh.endswith(("ly", "ed")) and lh not in ED_NOUNS and lh not in ("fly", "butterfly", "dragonfly", "lily", "belly")):
+        return None                                    # an adverb, a participle, a material, a brand or a verb is not a head noun
     if (lh.endswith("ing") and lh not in ING_NOUNS) or (lh.endswith(ADJ_ENDINGS) and lh not in NOUN_EXCEPTIONS) or \
             ("-" in lh and lh.split("-")[-1] in ADJ):
         return None                                    # 'flying', 'ellipsoidal', 'jet-black': adjectives by their form
@@ -328,8 +370,18 @@ def parse_np(tokens: list) -> dict | None:
     if (prev in MADE or prev in COMPOUND) and len(prev) + 1 + len(lh) <= 17:
         name = f"{prev} {lh}"
     colours = []
+    # a colour word that is the first noun of a compound is no colour ('a wine cork', 'a wine cellar shelf', 'a sand volleyball
+    # court'), nor 'cream' after 'ice' ('an ice cream cone holder')
+    cmods = list(mods)
+    for i, m in enumerate(mods):
+        nxt = mods[i + 1] if i + 1 < len(mods) else lh
+        if m in COMPOUND and m in maps.COLOUR and nxt not in maps.COLOUR and \
+                nxt not in ("and", "colored", "coloured", "toned", "tinted", "hued"):
+            cmods[i] = ""
+        elif m == "cream" and i > 0 and mods[i - 1] in ("ice", "whipped", "sour", "shaving", "sun"):
+            cmods[i] = ""
     # a colour bound to a part ('a gray tailed squirrel', 'a red haired doll', 'a yellow-crowned heron') is not the subject's colour
-    whole = re.sub(r"\b[a-z]+ (?!colou?red\b)[a-z]+ed\b", " ", open_colours(" ".join(mods)))
+    whole = re.sub(r"\b[a-z]+ (?!(?:colou?red|red)\b)[a-z]+ed\b", " ", open_colours(" ".join(m for m in cmods if m)))
     for v in maps.find(whole, maps.COLOUR):
         if v not in colours:
             colours.append(v)
@@ -359,8 +411,12 @@ def subject_of(first: str) -> tuple:
     """-> (view words, count, noun phrase) of the view sentence: 'An overhead view of four labradoodle puppies, ...'."""
     view = ""
     first = re.sub(r"\bbod(?:y|ies) of water\b", "water", first, flags=re.I)      # 'a clear body of water' is water
+    # ('a view at dusk of a tower': 'at' a time of day is not the of-word, the tower is the subject)
+    # ('an indoor top-down view captures a white cat': the verb is the of-word)
     m = re.match(r"^(.{0,140}?)\b(view|views|close-up|closeup|close up|shot|image|photograph|photo|picture|up-close|look)\b"
-                 r"(.{0,70}?)\b(?:of|at|showing)\b\s*(.*)$", first, re.I | re.S)
+                 r"(.{0,70}?)\b(?:of|at(?!\s+(?:dusk|dawn|night|nighttime|sunset|sunrise|twilight|noon|midday|daytime|evening|"
+                 r"morning|daybreak|golden hour|blue hour)\b)|showing|captures|shows|depicts|features|displays|presents|"
+                 r"showcases|reveals)\b\s*(.*)$", first, re.I | re.S)
     rest = first
     if m and not re.search(r"\b(is|are|was|were)\b", m.group(1) + m.group(3)) and \
             not re.search(r"(?<![\w-])(with|on|in|of|showing|displaying|depicting|has|having|from)(?![\w-])", m.group(1), re.I):
@@ -424,9 +480,28 @@ def _one(patterns, texts) -> str | None:
     return vals.pop() if len(vals) == 1 else None
 
 
+def weather_of(texts) -> str | None:
+    """The one weather the sentences state: fog and haze only in the open air (OPEN_AIR), never of an object ('foggy
+    headlights', 'a misty window': FOGGY_THING), and no snow, fog or haze of a likeness or a decoration (NOT_WEATHER); two
+    different weathers: none."""
+    vals = set()
+    for t in texts:
+        t = FOGGY_THING.sub(" ", t)
+        for pat, v in WEATHER_WORDS:
+            if not re.search(pat, t):
+                continue
+            if v in ("fog", "haze") and not OPEN_AIR.search(t):
+                continue
+            if v in ("snow", "fog", "haze") and NOT_WEATHER.search(t):
+                continue
+            vals.add(v)
+    return vals.pop() if len(vals) == 1 else None
+
+
 # ------------------------------------------------------------------ the description -> the spec
 def sentences_of(description: str) -> list:
-    return [s.strip() for s in _SENT.split(core.ascii_text(description)) if s.strip()]
+    """The description's sentences (not split after 'St.', 'Mr.', 'Mt.' or an initial: 'Jackson Square in St. Louis.' is one)."""
+    return [s.strip() for s in core.sentences(core.ascii_text(description)) if s.strip()]
 
 
 def _end(np: dict | None, thing: dict | None) -> str | None:
@@ -507,8 +582,59 @@ def _person(s: core.Spec, sents: list, count, np: dict) -> None:
         s.set("body", "pose", poses.pop())
 
 
-def spec_of(description: str) -> tuple:
-    """-> (core.Spec, genre, hint) for one DOCCI description, or (None, reason, '') when it is skipped."""
+# a person word in a view sentence that names a likeness, not a person ('two large nutcracker soldiers', 'a cutout of a person')
+NOT_A_PERSON = re.compile(r"\b(shadows?|silhouettes?|reflections?|statues?|sculptures?|sculpted|graffiti|murals?|toys?|dolls?|"
+                          r"figurines?|mannequins?|nutcrackers?|cutouts?|cut-outs?|scarecrows?|effig(?:y|ies)|puppets?|robots?|"
+                          r"action figures?)\b")
+# where a sentence places its subject: a placement phrase of the frame ('on the left side of the image', 'in the center of the
+# frame'); 'to' or 'towards' the left is a direction, not a place
+PLACE = re.compile(r"(?:on|in|at)\s+the\s+(?:very\s+|far\s+)?(?:(?:bottom|top|lower|upper)\s+)?(left|right)(?:\s+(?:hand\s+)?"
+                   r"(?:side|half|portion|part|corner|edge|third))?\s+of\s+the\s+(?:image|frame|photo|picture|photograph|shot)\b|"
+                   r"(?:in|at)\s+the\s+(?:very\s+)?(?:center|centre|middle)\s+of\s+the\s+(?:image|frame|photo|picture|photograph|"
+                   r"shot)\b")
+# a sentence of a direction or a motion places nothing ('the head pointing towards the lower left corner', 'facing the left side')
+MOTION = re.compile(r"\b(?:fac(?:e|es|ed|ing)|point(?:s|ed|ing)?|look(?:s|ed|ing)|swim\w*|driv\w*|extend\w*|curv\w*|span\w*|"
+                    r"mov(?:e|es|ed|ing)|head(?:s|ed|ing)|fl(?:y|ies|ying)|walk\w*|run(?:s|ning)?|lean\w*|turn\w*|orient\w*|angled|"
+                    r"stretch\w*|reach\w*|lead(?:s|ing)|go(?:es|ing)|travel\w*|toward|towards)\b")
+_PLACE_VERB = (r"(?:is|are|sits|sit|stands|stand|lies|lie|rests|rest|hangs|hang|appears|appear|can be seen|"
+               r"(?:is|are)\s+(?:sitting|standing|lying|laying|resting|hanging|placed|positioned|located|situated|set|parked|perched|"
+               r"mounted|visible|seen|shown|found|centered|centred|growing|floating|hovering))")
+_PLACE_ADV = r"(?:(?:slightly|mostly|directly|just|partially|partly|almost|nearly|also|primarily|mainly|placed|positioned|located)\s+)*"
+_VIEW_GAP = (r"(?:(?:that|which)\s+)?(?:(?:is|are|sitting|standing|lying|laying|resting|sleeping|perched|parked|placed|positioned|"
+             r"located|seen|visible|shown|hanging|mounted|set|situated|centered|centred|growing|floating|hovering)\s+){0,3}")
+
+
+def placed(tl: str, np: dict, first: bool) -> str | None:
+    """left / right / centre when a (lower-case) sentence places the thing itself in the frame: a clause with the thing as its
+    plain subject and the placement right after its verb ('The red star is on the left side of the image'; only the thing's own
+    modifiers between the article and the noun) or, in the view sentence, the placement right after its noun ('a dog lying on the
+    left side of the frame'). A direction or a motion between the noun and the placement places nothing ('the head pointing towards
+    the lower left corner'), nor does a placement of another noun ('with the edges of the mat visible on the left side')."""
+    h = re.escape(np["head"])
+    spans = []                                         # (the text from the noun through the placement, the placement)
+    if first:
+        for m in re.finditer(rf"\b{h}\s+{_VIEW_GAP}", tl):
+            p = PLACE.match(tl, m.end())
+            if p:
+                spans.append((tl[m.start():p.end()], p))
+    else:
+        for clause in re.split(r"[;,]\s*", tl):
+            clause = re.sub(r"^(?:and|while|but|so|as)\s+", "", clause.strip())
+            m = re.match(rf"^(?:the|this|these|that)\s+((?:[a-z-]+\s+){{0,3}}?){h}\s+{_PLACE_VERB}\s+{_PLACE_ADV}", clause)
+            if not m or any(w not in ADJ and w not in MADE and w not in np["mods"] and w not in STATE_ADJ
+                            for w in m.group(1).split()):
+                continue                               # 'the rug the puppies are on': another noun is the subject
+            p = PLACE.match(clause, m.end())
+            if p:
+                spans.append((clause[:p.end()], p))
+    found = {"left": "left", "right": "right"}
+    vals = {found.get(p.group(1), "centre") for span, p in spans if not MOTION.search(span)}
+    return vals.pop() if len(vals) == 1 else None
+
+
+def spec_of(description: str, vocab: set | None = None) -> tuple:
+    """-> (core.Spec, genre, hint) for one DOCCI description, or (None, reason, '') when it is skipped. `vocab`: the plain words
+    of the descriptions (core.corpus_vocab of the whole file, as seeds passes it; by default those of this description)."""
     sents = sentences_of(description)
     if not sents:
         return None, "empty", ""
@@ -519,11 +645,11 @@ def spec_of(description: str) -> tuple:
     first = sents[0]
     view, count, np = subject_of(first)
     plain = [t.lower() for t in sents if not PICTUREISH.search(t.lower()) and '"' not in t]     # scene facts: no pictures, signs
-    # ---- the person system: only when the view sentence's subject is a person, in a sentence of no picture or shadow
+    # ---- the person system: only when the view sentence's subject is a person, in a sentence of no picture, shadow or likeness
+    # ('a white stone man', 'two nutcracker soldiers', 'a cutout of a person': no person)
     person_subject = np is not None and np["head"] in PERSON_NOUNS
-    if person_subject and not PICTUREISH.search(first.lower()) and \
-            not re.search(r"\b(shadow|shadows|silhouette|silhouettes|reflection|statue|sculpture|graffiti|mural|toy|doll)\b",
-                          first.lower()):
+    if person_subject and not np["made"] and not np["toy"] and not PICTUREISH.search(first.lower()) and \
+            not NOT_A_PERSON.search(first.lower()):
         _person(s, sents, count, np)
         # the thing the person holds in the view sentence ('a man holding a red umbrella')
         m = re.search(rf"\b{re.escape(np['head'])}\b[^.;]*?\b(?:holding|carrying)\s+(a|an|one|two|three)\s+(.*)$", first, re.I)
@@ -555,20 +681,10 @@ def spec_of(description: str) -> tuple:
                         break
         if len(set(states)) == 1:
             s.set("thing", "state", states[0])
-        # position: a sentence whose subject is the thing names one side of the frame
-        places = set()
-        for t in sents:
-            tl = t.lower()
-            if t is first or re.match(rf"^(?:the|this|a|an)\s+(?:[a-z-]+\s+){{0,3}}{re.escape(np['head'])}\b", tl):
-                if t is first and not re.search(rf"\b{re.escape(np['head'])}\b[^,.;]{{0,40}}?(?:is\s+)?(?:on|in|at|to)\s+the\s+"
-                                                 r"(?:far\s+|bottom\s+|top\s+|lower\s+|upper\s+)?(?:left|right|center|centre|"
-                                                 r"middle)", tl):
-                    continue
-                found = {(m.group(1) or "centre") for m in POSITION.finditer(tl)}
-                if len(found) == 1:
-                    places.update(found)
+        # position: a sentence that places the thing itself in the frame (placed)
+        places = {p for p in (placed(t.lower(), np, t is first) for t in sents) if p}
         if len(places) == 1:
-            s.set("thing", "position", {"left": "left", "right": "right"}.get(places.pop(), "centre"))
+            s.set("thing", "position", places.pop())
     # ---- the shot: the view phrase's framing and angle; light and focus words
     if view:
         fr = _first(FRAMING_VIEW, view)
@@ -588,8 +704,7 @@ def spec_of(description: str) -> tuple:
     tm = _one(TIME_WORDS, plain + [view])
     if tm:
         s.set("scene", "time", tm)
-    weather_texts = [re.sub(NOT_OVERCAST, " ", t) for t in plain]
-    wx = _one(WEATHER_WORDS, weather_texts)
+    wx = weather_of([re.sub(NOT_OVERCAST, " ", t) for t in plain])
     if wx:
         s.set("scene", "weather", wx)
     keys = "|".join(sorted((re.escape(k) for k in maps.SETTING if k not in SETTING_SKIP), key=len, reverse=True))
@@ -616,9 +731,13 @@ def spec_of(description: str) -> tuple:
             seen.add(pair)
         if len(s.rels) >= core.MAX_RELATIONS:
             break
-    # ---- the hint: the description without names, quoted or upper-case text
+    # ---- the hint: the description without quoted or upper-case text, without its image talk ('the image shows'), then without
+    # every sentence that may hold a name (core.drop_named_strict: a capitalized first word that is not a plain word of the
+    # descriptions, 'Einstein's left arm ...', is a name too)
     keep = [t for t in sents if '"' not in t and not re.search(r"\b[A-Z]{2,}\b", t)]
-    hint = core.make_hint(_SENT.split(core.drop_named(" ".join(keep)))) if keep else ""
+    text = core.drop_named_strict(core.without_image_talk(" ".join(keep)),
+                                  vocab if vocab is not None else core.corpus_vocab([description])) if keep else ""
+    hint = core.make_hint(core.sentences(text)) if text else ""
     return s, _genre(thing, person_subject, sents), hint
 
 
@@ -657,12 +776,16 @@ def rows(raw_dir: str):
 
 
 def seeds(raw_dir: str, limit: int | None = None):
-    """Seeds of the 14,847 descriptions in file order (qual_dev, qual_test, test, train as the file holds them)."""
+    """Seeds of the 14,847 descriptions in file order (qual_dev, qual_test, test, train as the file holds them); `limit`: at most
+    that many (None: all, 0: none). The plain words of all the descriptions are read first, for the name filter of the hints."""
     STATS.clear()
+    if limit is not None and limit <= 0:
+        return
+    vocab = core.corpus_vocab(row.get("description", "") for row in rows(raw_dir))
     n = 0
     for row in rows(raw_dir):
         STATS["rows"] += 1
-        spec, genre, hint = spec_of(row.get("description", ""))
+        spec, genre, hint = spec_of(row.get("description", ""), vocab)
         if spec is None:
             STATS[f"skip: {genre}"] += 1
             continue
