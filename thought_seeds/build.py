@@ -158,6 +158,66 @@ def main(argv=None) -> int:
             print("  REVIEW ", *w)
         print(f"the full report: {out}")
         return 0 if not rep["problems"] and not rep["unparsed"] else 1
+    if "accept" in args:                       # --accept=36-38 --rows-dir=DIR [--sample=8] [--rng=N]: the acceptance read
+        from .curate import accept, format_row
+        first, last = (int(x) for x in args["accept"].split("-"))
+        rep = accept(args["rows-dir"], first, last, int(args.get("sample", 8)), int(args["rng"]) if "rng" in args else None)
+        for b, v in rep["batches"].items():
+            if v is None:
+                print(f"batch {b:03d}: no rows file")
+                continue
+            print(f"batch {b:03d}: rows {v['rows']} unparsed {v['unparsed']} problems {len(v['problems'])} skipped "
+                  f"{v['missing'] or 0} name warnings {len(v['warnings'])} depths {v['by_depth']}")
+            for p in v["problems"][:10]:
+                print("  PROBLEM", *p)
+            for w in v["warnings"][:5]:
+                print("  REVIEW ", *w)
+        print(f"rows {rep['rows']}; steps {dict(rep['steps'].most_common())}")
+        print(f"drawn genres {dict(rep['drawn_genres'].most_common())}")
+        print(f"seeded genres {dict(rep['seeded_genres'].most_common())}")
+        for name in ("gloss", "remark", "genre", "thought count", "seeded genre changed", "series with two genres"):
+            hits = rep["flags"].get(name, [])
+            print(f"{name}: {len(hits)}")
+            for h in hits[:30]:
+                print("   ", h)
+        print("\n==== rows to read ====")
+        for r in sorted(rep["sample"], key=lambda r: r["id"]):
+            print(format_row(r) + "\n")
+        bad = [b for b, v in rep["batches"].items() if v is None or v["problems"] or v["unparsed"]]
+        return 1 if bad else 0
+    if "patch" in args:                        # --patch=FILE --rows-dir=DIR[,DIR] [--log=FILE] [--dry]: a patch, checked first
+        from .curate import apply_patch
+        with open(args["patch"], encoding="utf-8") as fh:
+            patch = json.load(fh)
+        res = apply_patch(args["rows-dir"].split(","), patch, args.get("log"), args.get("dry") == "1")
+        print(f"changes {res['changes']} in {res['files']} files; written {res['written']}")
+        for p in res["problems"]:
+            print("  PROBLEM", *p)
+        for path, ps in res["new_problems"].items():
+            for p in ps[:10]:
+                print("  BREAKS", os.path.basename(path), *p)
+        return 0 if not res["problems"] and not res["new_problems"] else 1
+    if "audit" in args:                        # --audit=ACCEPTED.txt: every accepted row before a release
+        from .curate import audit
+        rep = audit(args["audit"])
+        print(f"rows {rep['rows']}; problems {len(rep['problems'])}; duplicate ids {len(rep['duplicate_ids'])}; genres not a kind "
+              f"{len(rep['genre'])}; thought counts out of range {len(rep['thought_count'])}; to read: gloss {len(rep['gloss'])}, "
+              f"remark {len(rep['remark'])}")
+        print("genres", dict(rep["genres"].most_common()))
+        for name in ("problems", "duplicate_ids", "genre", "thought_count", "gloss", "remark"):
+            for h in rep[name][:30]:
+                print(f"  {name.upper()}", h)
+        return 1 if rep["problems"] or rep["duplicate_ids"] or rep["genre"] or rep["thought_count"] else 0
+    if "pools" in args:                        # --pools=45-47 --seeds-dir=DIR --rows-dir=DIR[,DIR] --out=DIR --quota=coco:4,...
+        from .curate import pools
+        first, last = (int(x) for x in args["pools"].split("-"))
+        quota = {s: int(n) for s, n in (x.split(":") for x in args["quota"].split(","))}
+        res = pools(args["seeds-dir"], args["rows-dir"].split(","), args["out"], first, last, quota,
+                    int(args["rng"]) if "rng" in args else None)
+        for s in quota:
+            print(f"{s:22s} eligible {res['eligible'][s]:9,d} picked {res['picked'][s]}")
+        print("pools", *res["pools"])
+        return 0
     names =available() if args.get("sources", "all") == "all" else args["sources"].split(",")
     print(f"thought_seeds {sys.modules['thought_seeds'].__version__}; tools {core.tp.VERSION}; sources {names}; "
           f"priority {_lower_priority(float(args.get('gb', 16)))}", flush=True)

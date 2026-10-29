@@ -46,6 +46,23 @@ python -m pytest -q
 full builds run on a Colab CPU with the two notebooks above. Each run prints the job size, the time spent and the time left, and writes
 `seeds/<source>/stats.json` (counts, record histogram, key coverage, rejections by reason) beside the shards.
 
+## Draw batches and curate the rows
+
+```bash
+thought-seeds --pools=45-47 --seeds-dir=out/seeds --rows-dir=rows --out=pools --quota=coco:4,localized_narratives:3,gqa:2,docci:2,met:2,nga:1,aic:1,cleveland:1,wikidata:1,diffusiondb:1
+thought-seeds --draw=45 --series=14 --singles=18 --rows-dir=rows --seeds=pools/pool_045.jsonl
+thought-seeds --check-rows=rows/batch_045.rows.jsonl --specs=rows/batch_045.specs.jsonl
+thought-seeds --accept=45-47 --rows-dir=rows --sample=8      # the validator, then the detectors below, then rows to read
+thought-seeds --patch=fix.json --rows-dir=rows --log=rows/patches.log.jsonl [--dry=1]
+thought-seeds --audit=rows/ACCEPTED.txt                      # every accepted row before a release
+```
+
+A batch's seeded rows come from a pool that holds a known mix of sources; the drawer pairs them with sampled specifications for the
+writer. The writer's rows go through the validator and then through three detectors (`thought_seeds/curate.py`) whose hits are read
+by eye: a thought that defines a word instead of looking at the picture, a thought about the writing or the specification instead of
+the picture, and a genre that is not a kind of picture. A patch names each thought it changes by its exact text, and the patched rows
+are checked before any file is written, so a fix that breaks a row writes nothing.
+
 ## A seed
 
 ```json
@@ -82,6 +99,8 @@ thought_seeds/
   maps.py      source words to the closed values (colours, settings, poses, media, styles, relations, ...)
   textspec.py  the prompt-text parser the prompt and label sources share (parti, diffusiondb, wikidata)
   build.py     the runner and the attribution files (the `thought-seeds` command)
+  rows.py      the batch drawer and the row checker
+  curate.py    the acceptance read, the detectors, checked patches, the release audit, the seed pools
   io.py        reading seed files
   hub.py       listing and downloading the published seeds
   sources/     one importer per source: fetch() and seeds()
