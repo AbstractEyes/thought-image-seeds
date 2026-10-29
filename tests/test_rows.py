@@ -2,7 +2,7 @@
 import json
 
 from thought_seeds.core import tp
-from thought_seeds.rows import check_rows, draw, possible_names
+from thought_seeds.rows import check_rows, draw, incoherent, photo_ok, possible_names
 
 
 def test_draw_allots_ids_and_series(tmp_path):
@@ -23,6 +23,25 @@ def test_check_rows_catches_license_spec_and_missing(tmp_path):
     rows.write_text(json.dumps(row) + "\n")
     rep = check_rows(str(rows), path)
     assert rep["by_rule"].get("spec kept") == 1 and rep["by_rule"].get("missing") == 1
+
+
+def test_incoherent_catches_closed_eyes_night_window_light_and_a_horizon_against_the_angle():
+    assert incoherent({"look": {"expression": "closed eyes", "eyes": "amber"}})
+    assert incoherent({"person": {"gender": "girl"}, "look": {"expression": "closed eyes"},
+                       "relation": [{"a": "girl", "rel": "looking at", "b": "lantern"}]})
+    assert not incoherent({"look": {"expression": "closed eyes"}, "relation": [{"a": "cat", "rel": "looking at", "b": "bird"}]})
+    assert incoherent({"shot": {"light": "soft window"}, "scene": {"setting": "kitchen", "time": "midnight"}})
+    assert incoherent({"shot": {"angle": "worm's eye"}, "form": {"compose": "horizon high"}})
+    assert incoherent({"shot": {"angle": "overhead"}, "form": {"compose": "horizon low"}})
+    assert not incoherent({"shot": {"angle": "low angle"}, "form": {"compose": "horizon low"}})
+
+
+def test_photographs_keep_eyes_a_camera_finds_and_no_spotlight_in_the_day_outdoors():
+    assert not photo_ok({"look": {"eyes": "scarlet"}}, "photograph") and photo_ok({"look": {"eyes": "scarlet"}}, "illustration")
+    assert photo_ok({"look": {"eyes": "hazel"}}, "photograph")
+    spot = {"shot": {"light": "spotlight"}, "scene": {"setting": "beach", "time": "noon"}}
+    assert not photo_ok(spot, "photograph") and photo_ok(spot, "painting")
+    assert photo_ok({"shot": {"light": "spotlight"}, "scene": {"setting": "studio", "time": "noon"}}, "photograph")
 
 
 def test_possible_names_flags_capitalized_words_inside_sentences():

@@ -206,6 +206,18 @@ def incoherent(spec: dict) -> list:
             why.append(f"a {a_} behind a {b_}, hidden")
         if rel == "above" and sa == 1 and sb == 3 and a_ not in ALOFT_SMALL:
             why.append(f"a {a_} hovering above a {b_}")                        # an umbrella above a whole tree
+    look = spec.get("look", {})
+    if look.get("expression") == "closed eyes":
+        if look.get("eyes"):
+            why.append(f"{look['eyes']} eyes, closed")                              # closed eyes hide their colour
+        if any(r.get("rel") == "looking at" and r.get("a") not in tp.SIZE for r in rels):
+            why.append("closed eyes while looking at something")
+    if light == "soft window" and tm in ("night", "midnight", "late evening"):
+        why.append(f"soft window light at {tm}")                                # no daylight left to come through the window
+    angle, comp = spec.get("shot", {}).get("angle"), form.get("compose")
+    if ((angle in ("worm's eye", "low angle") and comp == "horizon high") or (angle == "high angle" and comp == "horizon low")
+            or (angle == "overhead" and comp in ("horizon high", "horizon low"))):
+        why.append(f"{comp} seen from {angle}")                                  # a camera looking up drops the horizon
     if spec.get("form", {}).get("medium") in NOT_DRAWN_MEDIA:
         why.append(f"medium {spec['form']['medium']}")
     return why
@@ -272,10 +284,25 @@ UNNATURAL_FUR = {"blue", "light blue", "dark blue", "navy", "teal", "turquoise",
                  "wine", "maroon", "mustard"}
 
 
+NATURAL_EYES = {"amber", "black", "blue", "brown", "dark", "dark blue", "dark brown", "green", "grey", "hazel", "heterochromia",
+                "light", "light blue", "light brown"}
+
+
 def photo_ok(spec: dict, domain: str) -> bool:
-    """A photograph shows a dog, a cat or a horse in a colour its coat can have (a light blue dog is an illustration's)."""
+    """A photograph shows what a camera finds: a dog, a cat or a horse in a colour its coat can have (a light blue dog is an
+    illustration's), eyes in a colour eyes have (scarlet eyes are a painter's or an illustrator's), and no spotlight outdoors in
+    the day (the sun drowns it)."""
+    if domain != "photograph":
+        return True
     t = spec.get("thing", {})
-    return not (domain == "photograph" and t.get("name") in FURRED and t.get("colour") in UNNATURAL_FUR)
+    if t.get("name") in FURRED and t.get("colour") in UNNATURAL_FUR:
+        return False
+    eyes = spec.get("look", {}).get("eyes")
+    if eyes and eyes not in NATURAL_EYES:
+        return False
+    sc = spec.get("scene", {})
+    return not (spec.get("shot", {}).get("light") == "spotlight" and sc.get("setting") and sc["setting"] not in INDOOR
+                and sc.get("time") in DAY_HOURS)
 
 
 def _medium_in_mix(spec: dict, mix) -> bool:
