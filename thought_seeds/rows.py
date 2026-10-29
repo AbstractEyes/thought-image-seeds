@@ -177,6 +177,8 @@ def incoherent(spec: dict) -> list:
     thing = spec.get("thing", {}).get("name")
     if fr in TIGHT_FRAMING and thing and tp.SIZE.get(thing, 2) > 1:
         why.append(f"a whole {thing} in a {fr} frame")                         # a macro frame holds a hand-sized thing
+    if fr == "macro" and p and thing:
+        why.append(f"a person and a {thing} in one macro frame")                # a macro shows one small part, of one of them
     if light == "silhouette" and form.get("contrast") in ("low", "gentle", "tonal", "colour"):
         why.append(f"{form['contrast']} contrast under a silhouette")
     if spec.get("body", {}).get("pose") == "floating" and st and st not in WATER:

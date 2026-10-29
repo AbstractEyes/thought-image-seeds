@@ -34,6 +34,8 @@ def test_incoherent_catches_closed_eyes_night_window_light_and_a_horizon_against
     assert incoherent({"shot": {"angle": "worm's eye"}, "form": {"compose": "horizon high"}})
     assert incoherent({"shot": {"angle": "overhead"}, "form": {"compose": "horizon low"}})
     assert not incoherent({"shot": {"angle": "low angle"}, "form": {"compose": "horizon low"}})
+    assert incoherent({"person": {"gender": "boy"}, "shot": {"framing": "macro"}, "thing": {"name": "camera"}})
+    assert not incoherent({"shot": {"framing": "macro"}, "thing": {"name": "camera"}})
 
 
 def test_photographs_keep_eyes_a_camera_finds_and_no_spotlight_in_the_day_outdoors():
