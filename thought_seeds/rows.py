@@ -7,6 +7,7 @@ series whole (ranks 1-3 = simple, medium, deep), a seeded row keeping every reco
 possible real names (capitalized words inside a sentence) for review.
 
     thought-seeds --draw=<batch number> --series=10 --singles=0 --rows-dir=<dir> [--rng=<seed>] [--seeds=<seed files or glob>]
+                  [--seeded-series=<how many series come from series seeds>]
     thought-seeds --check-rows=<rows.jsonl> [--specs=<specs.jsonl>]
 
 Ids: series s-BBBNN (batch BBB, series NN < 100), rows art-BBBKKK (row KKK < 1000 within the batch)."""
@@ -260,6 +261,17 @@ def seed_depth(seed: dict) -> str:
     return "simple"
 
 
+LONG_LOOK_HINT = 450                                     # a full description (DOCCI's run about 120 words): facts for a deep rank
+
+
+def series_seed(seed: dict) -> bool:
+    """A seed that can carry a whole series: the deep rank is the seed's records plus the facts its hint states plainly (the
+    writer's rule), so the seed is deep-capable, or holds 4 records and a full description of LONG_LOOK_HINT bytes."""
+    if seed_depth(seed) == "deep":
+        return True
+    return tp.n_records(seed["spec"]) >= 4 and len(seed.get("hint", "")) >= LONG_LOOK_HINT
+
+
 def _tidy(spec: dict) -> dict:
     """A relation end that is the bare word 'nonbinary' becomes 'person' (the gender word names the subject; 'nonbinary' is not a noun)."""
     for r in spec.get("relation", []) or []:
@@ -340,11 +352,12 @@ def pictures_drawn(rows_dir: str, batch: int, pictures: dict | None = None) -> s
 
 
 def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int | None = None, seeds=None,
-         domains: dict | None = None, seed_series: bool = False) -> str:
+         domains: dict | None = None, seed_series: bool | int = False) -> str:
     """Writes <rows_dir>/batch_BBB.specs.jsonl: n_series series of three nested specs and n_singles single specs (depth by the pilot
-    mix). With `seeds` (seed files), every spec is a real seed's spec (a single row at the depth its record count fits, or the deep
-    rank of a series whose medium and simple ranks are cut from it by the writer); without, specs are drawn by the tools'
-    sampler from the training lists. -> the path."""
+    mix). With `seeds` (seed files), every single is a real seed's spec at the depth its record count fits, and `seed_series`
+    series (True: all of them) are seeded too: the deep rank is a series seed's spec (series_seed), the writer adds the facts its
+    hint states plainly and cuts the medium and simple ranks from it; the other series and every spec without `seeds` are drawn by
+    the tools' sampler from the training lists. -> the path."""
     import numpy as np
     assert 0 < batch < 1000 and 0 <= n_series < 100 and n_series * 3 + n_singles < 1000
     rng = np.random.default_rng(rng_seed if rng_seed is not None else 2026 * 1000 + batch)
@@ -370,16 +383,17 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
                 return pool.pop(i)
         raise ValueError("the seed pool ran out")
 
+    n_seeded = n_series if seed_series is True else int(seed_series or 0)
     out, k = [], 0
     for j in range(n_series):
         sid = f"s-{batch:03d}{j:02d}"
-        if pool and seed_series:                                  # seeded series need deep-capable seeds; else drawn
-            seed = take(lambda s: seed_depth(s) == "deep")
+        if pool and j < n_seeded:                                 # seeded series need series seeds; the rest are drawn
+            seed = take(series_seed)
             specs = {"deep": seed["spec"]}
             item = dict(kind="series", series=sid, ids=[f"art-{batch:03d}{k + i:03d}" for i in range(3)], domain=seed["domain"],
                         genre=seed["genre"], specs=specs, seed_id=seed["seed_id"], hint=seed.get("hint", ""),
-                        license=row_license(seed), note="the deep spec is the seed: keep every record; cut the medium and simple "
-                                                         "specs from it as subsets")
+                        license=row_license(seed), note="the deep spec is the seed: keep every record and add the facts the hint "
+                                                         "states plainly; cut the medium and simple specs from it as subsets")
         else:
             dom = None
             for _ in range(400):

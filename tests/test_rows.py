@@ -163,6 +163,30 @@ def test_draw_thin_specs_domains_and_seeded_depths(tmp_path):
     assert seed_depth(thin3) == "simple"                                    # three facts stay simple, whatever the hint
 
 
+def test_seeded_series_come_from_series_seeds(tmp_path):
+    from thought_seeds.rows import series_seed
+    spec = {"thing": {"name": "mailbox", "count": "1", "colour": "black"}, "shot": {"framing": "close-up"}}
+
+    def seed(sid, hint):
+        return {"seed_id": f"docci:{sid}", "domain": "photograph", "genre": "documentary", "spec": spec, "hint": hint,
+                "source": {"dataset": "docci", "id": sid, "license": "CC BY 4.0", "url": "https://example.org"}, "held": False}
+    full, short = "A close up view of a black mailbox. " * 13, "A black mailbox."
+    assert series_seed(seed("a", full)) and not series_seed(seed("b", short))
+    assert not series_seed(dict(seed("c", full), spec={"thing": {"name": "mailbox", "colour": "black"}}))   # two records
+    d = tmp_path / "seeds" / "docci"
+    d.mkdir(parents=True)
+    (d / "docci-00000.jsonl").write_text("".join(json.dumps(seed(f"l{i}", full)) + "\n" for i in range(3))
+                                         + "".join(json.dumps(seed(f"s{i}", short)) + "\n" for i in range(3)))
+    path = draw(50, 3, 2, str(tmp_path / "rows"), rng_seed=1, seeds=[str(tmp_path / "seeds")], seed_series=2)
+    items = [json.loads(line) for line in open(path)]
+    series = [it for it in items if it["kind"] == "series"]
+    assert [bool(it["seed_id"]) for it in series] == [True, True, False]
+    assert all(it["seed_id"].startswith("docci:l") and it["specs"] == {"deep": spec} for it in series[:2])
+    assert [it["ids"] for it in series] == [["art-050000", "art-050001", "art-050002"], ["art-050003", "art-050004", "art-050005"],
+                                            ["art-050006", "art-050007", "art-050008"]]
+    assert all(it["seed_id"] for it in items if it["kind"] == "single")
+
+
 def test_a_picture_two_sources_share_is_drawn_once(tmp_path):
     from thought_seeds import io
     from thought_seeds.rows import picture_of

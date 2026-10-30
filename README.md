@@ -58,7 +58,9 @@ thought-seeds --audit=rows/ACCEPTED.txt                      # every accepted ro
 ```
 
 A batch's seeded rows come from a pool that holds a known mix of sources; the drawer pairs them with sampled specifications for the
-writer. The writer's rows go through the validator and then through three detectors (`thought_seeds/curate.py`) whose hits are read
+writer. `--seeded-series=K` makes the first K series of a batch seeded as well: a long look at a real picture, from a seed that holds
+ten records and a 300-byte description, or four records and a full 450-byte description (DOCCI's run about 120 words). The writer
+keeps the seed's records, adds the facts its description states plainly, and cuts the closer and quick looks from that long look. The writer's rows go through the validator and then through three detectors (`thought_seeds/curate.py`) whose hits are read
 by eye: a thought that defines a word instead of looking at the picture, a thought about the writing or the specification instead of
 the picture, and a genre that is not a kind of picture. A patch names each thought it changes by its exact text, and the patched rows
 are checked before any file is written, so a fix that breaks a row writes nothing.
