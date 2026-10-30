@@ -19,7 +19,7 @@ import shutil
 from collections import Counter, defaultdict
 
 from .core import HELD, tp
-from .rows import check_rows, has_subject, seed_depth
+from .rows import check_rows, has_subject, seed_depth, series_seed
 
 SEALED_GENRES = set(HELD.get("genre", ()))
 KINDS = [g for g in tp.VOCAB["genre"] if g not in SEALED_GENRES] + ["environmental portrait", "figure study"]
@@ -285,12 +285,18 @@ def audit(accepted_path: str) -> dict:
 MUSEUMS = {"met", "nga", "aic", "cleveland", "wikidata"}
 
 
-def pools(seeds_dir: str, rows_dirs: list, out_dir: str, first: int, last: int, quota: dict, rng_seed: int | None = None) -> dict:
+def pools(seeds_dir: str, rows_dirs: list, out_dir: str, first: int, last: int, quota: dict, rng_seed: int | None = None,
+          series_quota: dict | None = None, exclude: set | None = None) -> dict:
     """One seed pool a batch for the drawer's seeded rows, so each batch draws a known mix: pool_BBB.jsonl holds twice the batch's
     quota of each source, plus the merged pictures.json (a picture two sources share is drawn once). Kept: training seeds of three
-    records or more with a subject (rows.has_subject); museum seeds with a person, a thing or a scene; seeds that fit their depth with room for the writer's mood
-    records (a medium row holds 14: at most 12 from the seed); seeds whose picture no batch in rows_dirs has drawn."""
+    records or more with a subject (rows.has_subject); museum seeds with a person, a thing or a scene; seeds that fit their depth
+    with room for the writer's mood records (a medium row holds 14: at most 12 from the seed); seeds whose picture no batch in
+    rows_dirs has drawn and that `exclude` does not name (seed ids or picture ids, e.g. another set's pictures). `series_quota`
+    adds, first in each pool, twice that many seeds a batch per source that can carry a whole series (rows.series_seed), for the
+    drawer's seeded series; a seed is picked once."""
     rng = random.Random(rng_seed if rng_seed is not None else 20261029 + first)
+    exclude = exclude or set()
+    series_quota = series_quota or {}
     pictures = {}
     for f in glob.glob(os.path.join(seeds_dir, "*", "pictures.json")):
         with open(f, encoding="utf-8") as fh:
@@ -301,21 +307,24 @@ def pools(seeds_dir: str, rows_dirs: list, out_dir: str, first: int, last: int, 
         return pictures.get(sid) or (f"coco-image:{num}" if src in ("coco", "localized_narratives") else sid)
     drawn = {picture(it["seed_id"]) for d in rows_dirs for f in glob.glob(os.path.join(d, "batch_*.specs.jsonl"))
              for it in read_rows(f) if it.get("seed_id")}
-    n_batches, picked, eligible = last - first + 1, {}, {}
-    for src, q in quota.items():
+    n_batches, taken = last - first + 1, set()
+
+    def sample(src, q, want=lambda s: True):
         k, reservoir, seen = 2 * q * n_batches, [], 0
         for f in sorted(glob.glob(os.path.join(seeds_dir, src, "*.jsonl"))):
             with open(f, encoding="utf-8") as fh:
                 for line in fh:
                     s = json.loads(line)
-                    if s.get("held"):
+                    if s.get("held") or s["seed_id"] in taken:
                         continue
                     sp, n = s["spec"], tp.n_records(s["spec"])
                     if n < 3 or not has_subject(sp) or (src in MUSEUMS and not any(x in sp for x in ("person", "thing", "scene"))):
                         continue
                     if seed_depth(s) == "medium" and n > 12:
                         continue
-                    if picture(s["seed_id"]) in drawn:
+                    if picture(s["seed_id"]) in drawn or s["seed_id"] in exclude or picture(s["seed_id"]) in exclude:
+                        continue
+                    if not want(s):
                         continue
                     seen += 1
                     if len(reservoir) < k:
@@ -325,7 +334,14 @@ def pools(seeds_dir: str, rows_dirs: list, out_dir: str, first: int, last: int, 
                         if j < k:
                             reservoir[j] = line.rstrip("\n")
         rng.shuffle(reservoir)
-        picked[src], eligible[src] = reservoir, seen
+        taken.update(json.loads(line)["seed_id"] for line in reservoir)
+        return reservoir, seen
+    series, series_eligible = {}, {}
+    for src, q in series_quota.items():
+        series[src], series_eligible[src] = sample(src, q, series_seed)
+    picked, eligible = {}, {}
+    for src, q in quota.items():
+        picked[src], eligible[src] = sample(src, q)
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "pictures.json"), "w", encoding="utf-8") as fh:
         json.dump(pictures, fh)
@@ -333,8 +349,12 @@ def pools(seeds_dir: str, rows_dirs: list, out_dir: str, first: int, last: int, 
     for i, b in enumerate(range(first, last + 1)):
         path = os.path.join(out_dir, f"pool_{b:03d}.jsonl")
         with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            for src, q in series_quota.items():
+                for line in series[src][i * 2 * q:(i + 1) * 2 * q]:
+                    fh.write(line + "\n")
             for src, q in quota.items():
                 for line in picked[src][i * 2 * q:(i + 1) * 2 * q]:
                     fh.write(line + "\n")
         paths.append(path)
-    return dict(eligible=eligible, picked={s: len(v) for s, v in picked.items()}, pools=paths)
+    return dict(eligible=eligible, picked={s: len(v) for s, v in picked.items()}, pools=paths,
+                series_eligible=series_eligible, series_picked={s: len(v) for s, v in series.items()})

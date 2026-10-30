@@ -209,11 +209,20 @@ def main(argv=None) -> int:
                 print(f"  {name.upper()}", h)
         return 1 if rep["problems"] or rep["duplicate_ids"] or rep["genre"] or rep["thought_count"] else 0
     if "pools" in args:                        # --pools=45-47 --seeds-dir=DIR --rows-dir=DIR[,DIR] --out=DIR --quota=coco:4,...
+        #                                        [--series-quota=docci:4,...] [--exclude=FILE]
         from .curate import pools
         first, last = (int(x) for x in args["pools"].split("-"))
         quota = {s: int(n) for s, n in (x.split(":") for x in args["quota"].split(","))}
+        series_quota = ({s: int(n) for s, n in (x.split(":") for x in args["series-quota"].split(","))}
+                        if "series-quota" in args else None)
+        exclude = None
+        if "exclude" in args:                  # a text file: one seed id or picture id a line (e.g. another set's pictures)
+            with open(args["exclude"], encoding="utf-8") as fh:
+                exclude = {line.strip() for line in fh if line.strip()}
         res = pools(args["seeds-dir"], args["rows-dir"].split(","), args["out"], first, last, quota,
-                    int(args["rng"]) if "rng" in args else None)
+                    int(args["rng"]) if "rng" in args else None, series_quota, exclude)
+        for s in series_quota or {}:
+            print(f"{s:22s} series seeds eligible {res['series_eligible'][s]:9,d} picked {res['series_picked'][s]}")
         for s in quota:
             print(f"{s:22s} eligible {res['eligible'][s]:9,d} picked {res['picked'][s]}")
         print("pools", *res["pools"])

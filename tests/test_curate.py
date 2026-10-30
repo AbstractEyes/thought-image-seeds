@@ -99,6 +99,24 @@ def test_pools_hold_the_quota_and_skip_held_seeds_and_drawn_pictures(tmp_path):
     assert len(ids) == 4 and "coco:0" not in ids and "coco:99" not in ids
 
 
+def test_pools_put_series_seeds_first_and_leave_out_excluded_pictures(tmp_path):
+    src = tmp_path / "seeds" / "docci"
+    src.mkdir(parents=True)
+    spec = {"thing": {"name": "mailbox", "count": "1", "colour": "black"}, "shot": {"framing": "close-up"}}
+    full, short = "A close up view of a black mailbox. " * 13, "A black mailbox on a post, seen up close."
+    seeds = ([dict(tp.EXAMPLE_SEED, seed_id=f"docci:l{i}", spec=spec, hint=full, held=False) for i in range(5)]
+             + [dict(tp.EXAMPLE_SEED, seed_id=f"docci:s{i}", spec=spec, hint=short, held=False) for i in range(5)])
+    (src / "docci-00000.jsonl").write_text("".join(json.dumps(s) + "\n" for s in seeds), encoding="utf-8")
+    rows = tmp_path / "rows"
+    rows.mkdir()
+    res = curate.pools(str(tmp_path / "seeds"), [str(rows)], str(tmp_path / "pools"), 1, 1, {"docci": 2}, rng_seed=1,
+                       series_quota={"docci": 1}, exclude={"docci:l0"})
+    assert res["series_eligible"]["docci"] == 4 and res["series_picked"]["docci"] == 2
+    ids = [json.loads(line)["seed_id"] for line in open(res["pools"][0], encoding="utf-8")]
+    assert len(ids) == len(set(ids)) == 6 and "docci:l0" not in ids
+    assert all(i.startswith("docci:l") for i in ids[:2])                  # the series seeds come first
+
+
 def test_the_command_runs_the_acceptance_read(tmp_path, capsys):
     _batch(tmp_path)
     assert main(["--accept=9-9", f"--rows-dir={tmp_path}", "--sample=1"]) == 0
