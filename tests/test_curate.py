@@ -52,6 +52,16 @@ def test_a_patch_writes_nothing_for_a_missing_text_or_a_broken_chain_question(tm
     assert path.read_text(encoding="utf-8") == before and not os.path.exists(str(path) + ".tmp")
 
 
+def test_a_patch_sets_a_domain_only_from_the_domain_list(tmp_path):
+    path, rows = _batch(tmp_path)
+    before = path.read_text(encoding="utf-8")
+    res = curate.apply_patch([str(tmp_path)], {"domain": {"art-009000": "oil on canvas"}})
+    assert res["problems"] and not res["written"] and path.read_text(encoding="utf-8") == before
+    other = next(d for d in ("painting", "illustration") if d != rows[0]["domain"])
+    res = curate.apply_patch([str(tmp_path)], {"domain": {"art-009000": other}})
+    assert res["written"] and res["changes"] == 1 and curate.read_rows(str(path))[0]["domain"] == other
+
+
 def test_a_restore_puts_a_dropped_thought_back_in_its_place(tmp_path):
     path, rows = _batch(tmp_path)
     form = rows[0]["thoughts"][2]["text"]

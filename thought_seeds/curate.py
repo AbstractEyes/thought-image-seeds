@@ -165,6 +165,7 @@ def apply_patch(rows_dirs: list, patch: dict, log_path: str | None = None, dry: 
     """Apply a patch to row files, all or nothing. The patch:
         {"note": "...",
          "genre":   {row id: new genre},
+         "domain":  {row id: new domain (one of the dataset's domains)},
          "edits":   {row id: [[old thought text, new step or None, new text or None to drop it], ...]},
          "restore": {row id: [[old thought text, None to put it back as it was, or a new text], ...]}}
     An edit names its thought by the exact old text, found exactly once in the row. A restore takes the thought from the row's
@@ -172,7 +173,8 @@ def apply_patch(rows_dirs: list, patch: dict, log_path: str | None = None, dry: 
     The patched rows are checked before any file is replaced: a patch that adds a problem the validator finds (a chain question
     whose value left with a dropped thought) writes nothing. Returns {changes, files, problems, new_problems, written}."""
     genre, edits, restore = patch.get("genre", {}), patch.get("edits", {}), patch.get("restore", {})
-    ids = set(genre) | set(edits) | set(restore)
+    domain = patch.get("domain", {})
+    ids = set(genre) | set(edits) | set(restore) | set(domain)
     note = patch.get("note", "")
     log, problems, touched, seen = [], [], {}, set()
     for path in sorted({_batch_file(rows_dirs, i) for i in ids}):
@@ -187,6 +189,12 @@ def apply_patch(rows_dirs: list, patch: dict, log_path: str | None = None, dry: 
             if rid in genre and r.get("genre") != genre[rid]:
                 log.append(dict(id=rid, field="genre", old=r.get("genre"), new=genre[rid], note=note))
                 r["genre"], changed = genre[rid], True
+            if rid in domain and r.get("domain") != domain[rid]:
+                if domain[rid] not in tp.DOMAINS:
+                    problems.append((rid, "not a domain", domain[rid]))
+                else:
+                    log.append(dict(id=rid, field="domain", old=r.get("domain"), new=domain[rid], note=note))
+                    r["domain"], changed = domain[rid], True
             for old, step, new in edits.get(rid, []):
                 hits = [i for i, t in enumerate(r["thoughts"]) if t["text"] == old]
                 if len(hits) != 1:
