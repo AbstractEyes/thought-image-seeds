@@ -261,6 +261,15 @@ def seed_depth(seed: dict) -> str:
     return "simple"
 
 
+SUBJECT_SYSTEMS = ("person", "thing", "scene", "wear", "body", "look", "relation")
+
+
+def has_subject(spec: dict) -> bool:
+    """Does the spec hold something to look at: a person (or what a person wears, does or looks like), a thing, a place or a
+    relation between things? A seed of light, focus, framing and medium alone has no subject, and its row would describe a camera."""
+    return any(spec.get(s) for s in SUBJECT_SYSTEMS)
+
+
 LONG_LOOK_HINT = 450                                     # a full description (DOCCI's run about 120 words): facts for a deep rank
 
 
@@ -367,7 +376,7 @@ def draw(batch: int, n_series: int, n_singles: int, rows_dir: str, rng_seed: int
     mix = tuple((d, w / tot) for d, w in mix)
     pool, used, pics = None, set(), {}
     if seeds:
-        pool = [s for s in read_seeds(seeds, held=False) if tp.n_records(s["spec"]) >= 2]
+        pool = [s for s in read_seeds(seeds, held=False) if tp.n_records(s["spec"]) >= 2 and has_subject(s["spec"])]
         rng.shuffle(pool)
         pics = pictures(seeds)
         used = pictures_drawn(rows_dir, batch, pics)              # a picture seeds one row in the whole dataset, not one a batch

@@ -19,7 +19,7 @@ import shutil
 from collections import Counter, defaultdict
 
 from .core import HELD, tp
-from .rows import check_rows, seed_depth
+from .rows import check_rows, has_subject, seed_depth
 
 SEALED_GENRES = set(HELD.get("genre", ()))
 KINDS = [g for g in tp.VOCAB["genre"] if g not in SEALED_GENRES] + ["environmental portrait", "figure study"]
@@ -280,7 +280,7 @@ MUSEUMS = {"met", "nga", "aic", "cleveland", "wikidata"}
 def pools(seeds_dir: str, rows_dirs: list, out_dir: str, first: int, last: int, quota: dict, rng_seed: int | None = None) -> dict:
     """One seed pool a batch for the drawer's seeded rows, so each batch draws a known mix: pool_BBB.jsonl holds twice the batch's
     quota of each source, plus the merged pictures.json (a picture two sources share is drawn once). Kept: training seeds of three
-    records or more; museum seeds with a person, a thing or a scene; seeds that fit their depth with room for the writer's mood
+    records or more with a subject (rows.has_subject); museum seeds with a person, a thing or a scene; seeds that fit their depth with room for the writer's mood
     records (a medium row holds 14: at most 12 from the seed); seeds whose picture no batch in rows_dirs has drawn."""
     rng = random.Random(rng_seed if rng_seed is not None else 20261029 + first)
     pictures = {}
@@ -303,7 +303,7 @@ def pools(seeds_dir: str, rows_dirs: list, out_dir: str, first: int, last: int, 
                     if s.get("held"):
                         continue
                     sp, n = s["spec"], tp.n_records(s["spec"])
-                    if n < 3 or (src in MUSEUMS and not any(x in sp for x in ("person", "thing", "scene"))):
+                    if n < 3 or not has_subject(sp) or (src in MUSEUMS and not any(x in sp for x in ("person", "thing", "scene"))):
                         continue
                     if seed_depth(s) == "medium" and n > 12:
                         continue

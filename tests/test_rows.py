@@ -187,6 +187,23 @@ def test_seeded_series_come_from_series_seeds(tmp_path):
     assert all(it["seed_id"] for it in items if it["kind"] == "single")
 
 
+def test_seeds_without_a_subject_are_never_drawn(tmp_path):
+    from thought_seeds.rows import has_subject
+    camera = {"shot": {"light": "studio flash", "focus": "bokeh"}, "form": {"medium": "photograph"}}
+    robe = {"wear": {"clothing": "robe", "colour": "black"}, "form": {"period": "medieval"}}
+    assert not has_subject(camera) and has_subject(robe) and has_subject({"relation": [{"a": "cat", "rel": "beside", "b": "vase"}]})
+
+    def seed(sid, spec):
+        return {"seed_id": f"diffusiondb:{sid}", "domain": "photograph", "genre": "portrait", "spec": spec, "hint": "",
+                "source": {"dataset": "diffusiondb", "id": sid, "license": "CC0 1.0", "url": "https://example.org"}, "held": False}
+    d = tmp_path / "seeds" / "diffusiondb"
+    d.mkdir(parents=True)
+    (d / "diffusiondb-00000.jsonl").write_text("".join(json.dumps(seed(f"c{i}", camera)) + "\n" for i in range(4))
+                                               + "".join(json.dumps(seed(f"r{i}", robe)) + "\n" for i in range(2)))
+    path = draw(51, 0, 2, str(tmp_path / "rows"), rng_seed=1, seeds=[str(tmp_path / "seeds")])
+    assert {json.loads(line)["seed_id"] for line in open(path)} == {"diffusiondb:r0", "diffusiondb:r1"}
+
+
 def test_a_picture_two_sources_share_is_drawn_once(tmp_path):
     from thought_seeds import io
     from thought_seeds.rows import picture_of
